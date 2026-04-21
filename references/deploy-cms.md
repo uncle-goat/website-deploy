@@ -1,23 +1,23 @@
-# CMS 部署指南
+# CMS Deployment Guide
 
-## WordPress Docker 部署
+## WordPress Docker Deployment
 
-### 架构
+### Architecture
 
-WordPress 采用经典的 LEMP 架构，通过 Docker Compose 编排各服务：
+WordPress uses the classic LEMP architecture, with services orchestrated via Docker Compose:
 
 ```
-Nginx (反向代理 + SSL 终端)
+Nginx (Reverse Proxy + SSL Termination)
   ├── WordPress (PHP-FPM)
   ├── MySQL 8.0
-  └── Redis 7 (对象缓存)
+  └── Redis 7 (Object Cache)
 ```
 
-使用 `docker-compose.cms` 模板快速生成配置。
+Use the `docker-compose.cms` template to quickly generate the configuration.
 
-### 配置要点
+### Configuration Highlights
 
-**docker-compose.yml 核心配置：**
+**Core docker-compose.yml configuration:**
 
 ```yaml
 version: '3.8'
@@ -78,12 +78,12 @@ volumes:
   redis-data:
 ```
 
-**镜像选择说明：**
-- `wordpress:6.5-php8.2-fpm-alpine` — PHP-FPM 模式，配合 Nginx 使用，Alpine 基础镜像体积更小
-- `mysql:8.0` — 稳定版本，支持 JSON 字段和窗口函数
-- `redis:7-alpine` — 用于 WordPress 对象缓存，大幅减少数据库查询
+**Image selection notes:**
+- `wordpress:6.5-php8.2-fpm-alpine` — PHP-FPM mode, used with Nginx; the Alpine base image is smaller in size
+- `mysql:8.0` — Stable version with support for JSON fields and window functions
+- `redis:7-alpine` — Used for WordPress object caching, significantly reducing database queries
 
-**Nginx 配置要点（PHP-FPM 代理）：**
+**Nginx configuration highlights (PHP-FPM proxy):**
 
 ```nginx
 upstream php-fpm {
@@ -114,13 +114,13 @@ server {
 }
 ```
 
-### 部署步骤
+### Deployment Steps
 
-**1. 生成配置文件：**
+**1. Generate configuration files:**
 
 ```bash
-# 从模板生成 docker-compose.yml
-# 创建 .env 文件
+# Generate docker-compose.yml from the template
+# Create a .env file
 cat > .env << 'EOF'
 DB_NAME=wordpress
 DB_USER=wp_user
@@ -129,83 +129,83 @@ DB_ROOT_PASSWORD=your_root_password
 EOF
 ```
 
-**2. 启动服务：**
+**2. Start the services:**
 
 ```bash
 docker compose up -d
 ```
 
-**3. 完成 WordPress 安装：**
+**3. Complete the WordPress installation:**
 
-- 访问 `http://your-domain/wp-admin`
-- 按照向导完成站点信息、管理员账号设置
-- 安装完成后登录后台
+- Visit `http://your-domain/wp-admin`
+- Follow the wizard to set up site information and the admin account
+- Log in to the admin dashboard after installation is complete
 
-**4. 配置 Redis 对象缓存：**
+**4. Configure Redis object caching:**
 
 ```bash
-# 安装 Redis Object Cache 插件
-# 在 wp-config.php 中添加 Redis 配置
+# Install the Redis Object Cache plugin
+# Add Redis configuration to wp-config.php
 define('WP_REDIS_HOST', 'redis');
 define('WP_REDIS_PORT', 6379);
 define('WP_CACHE', true);
 ```
 
-**5. 验证 Redis 连接：**
+**5. Verify the Redis connection:**
 
-在 WordPress 后台 → 设置 → Redis 中点击"启用对象缓存"，状态应显示为"已连接"。
+In the WordPress admin dashboard, go to Settings → Redis and click "Enable Object Cache." The status should show as "Connected."
 
-### 备份策略
+### Backup Strategy
 
-**数据库备份：**
+**Database backup:**
 
 ```bash
-# 手动备份
+# Manual backup
 docker exec db-container mysqldump \
   -u root -p"${DB_ROOT_PASSWORD}" wordpress > backup_$(date +%Y%m%d).sql
 
-# 恢复
+# Restore
 docker exec -i db-container mysql \
   -u root -p"${DB_ROOT_PASSWORD}" wordpress < backup.sql
 ```
 
-**文件备份：**
+**File backup:**
 
 ```bash
-# 备份 wp-content 目录（主题、插件、上传文件）
+# Back up the wp-content directory (themes, plugins, uploads)
 docker run --rm -v wordpress-data:/data -v $(pwd):/backup \
   alpine tar -czf /backup/wp-content-backup-$(date +%Y%m%d).tar.gz -C /data .
 ```
 
-**自动化备份（Cron）：**
+**Automated backups (Cron):**
 
 ```bash
-# 每天凌晨 2 点备份数据库
+# Back up the database every day at 2:00 AM
 0 2 * * * docker exec db-container mysqldump -u root -p'password' wordpress > /backups/db/daily_$(date +\%Y\%m\%d).sql
 
-# 每周日凌晨 3 点备份文件
+# Back up files every Sunday at 3:00 AM
 0 3 * * 0 docker run --rm -v wordpress-data:/data -v /backups/files:/backup alpine tar -czf /backup/wp-content-weekly_$(date +\%Y\%m\%d).tar.gz -C /data .
 
-# 保留最近 30 天的数据库备份
+# Retain only the last 30 days of database backups
 0 4 * * * find /backups/db -name "daily_*.sql" -mtime +30 -delete
 ```
 
 ---
 
-## Ghost Docker 部署
+## Ghost Docker Deployment
 
-### 架构
+### Architecture
 
-Ghost 是基于 Node.js 的现代 CMS，部署比 WordPress 更轻量：
+Ghost is a modern CMS built on Node.js, with a lighter deployment footprint than WordPress:
 
 ```
 Ghost (Node.js)
   └── MySQL 8.0 / SQLite
 ```
 
-### 配置要点
+### Configuration Highlights
 
-**docker-compose.yml：**
+**docker-compose.yml:**
 
 ```yaml
 version: '3.8'
@@ -254,13 +254,13 @@ volumes:
   db-data:
 ```
 
-**关键配置说明：**
-- `ghost:5-alpine` — 官方 Alpine 镜像，体积小
-- `url` — 必须设置为最终访问域名，否则资源加载会出错
-- `database__client` — 支持 `mysql` 和 `sqlite3`，生产环境推荐 MySQL
-- `mail` — 配置 SMTP 服务（Mailgun、SendGrid 等）用于发送系统邮件
+**Key configuration notes:**
+- `ghost:5-alpine` — Official Alpine image with a small footprint
+- `url` — Must be set to the final domain name, otherwise resource loading will fail
+- `database__client` — Supports `mysql` and `sqlite3`; MySQL is recommended for production
+- `mail` — Configure an SMTP service (Mailgun, SendGrid, etc.) for sending system emails
 
-**config.production.json（可选，优先级高于环境变量）：**
+**config.production.json (optional, takes priority over environment variables):**
 
 ```json
 {
@@ -294,12 +294,12 @@ volumes:
 }
 ```
 
-### 部署步骤
+### Deployment Steps
 
-**1. 生成配置文件：**
+**1. Generate configuration files:**
 
 ```bash
-# 创建 .env
+# Create a .env file
 cat > .env << 'EOF'
 DB_NAME=ghost_production
 DB_USER=ghost
@@ -310,19 +310,19 @@ MAIL_PASSWORD=your-mail-password
 EOF
 ```
 
-**2. 启动服务：**
+**2. Start the services:**
 
 ```bash
 docker compose up -d
 ```
 
-**3. 初始化管理后台：**
+**3. Initialize the admin dashboard:**
 
-- 访问 `http://your-domain/ghost`
-- 创建管理员账号
-- 邀请团队成员（可选）
+- Visit `http://your-domain/ghost`
+- Create an admin account
+- Invite team members (optional)
 
-**4. 配置 Nginx 反向代理（推荐）：**
+**4. Configure Nginx reverse proxy (recommended):**
 
 ```nginx
 server {
@@ -354,40 +354,40 @@ server {
 
 ---
 
-## 安全加固
+## Security Hardening
 
-### WordPress 安全
+### WordPress Security
 
-**限制登录尝试：**
-- 安装 `Limit Login Attempts Reloaded` 或 `Wordfence Security` 插件
-- 设置最大登录失败次数（建议 3-5 次）
-- 配置锁定时间（建议 15-30 分钟）
+**Limit login attempts:**
+- Install the `Limit Login Attempts Reloaded` or `Wordfence Security` plugin
+- Set a maximum number of failed login attempts (recommended: 3-5)
+- Configure a lockout duration (recommended: 15-30 minutes)
 
-**禁用后台文件编辑：**
+**Disable file editing in the admin dashboard:**
 
-在 `wp-config.php` 中添加：
+Add the following to `wp-config.php`:
 
 ```php
 define('DISALLOW_FILE_EDIT', true);
-define('DISALLOW_FILE_MODS', true);  // 禁止安装/更新插件和主题
+define('DISALLOW_FILE_MODS', true);  // Prevents installing/updating plugins and themes
 ```
 
-**定期更新：**
-- WordPress 核心、插件、主题保持最新版本
-- 启用自动更新（小版本）：`add_filter('auto_update_core', '__return_true');`
-- 更新前务必备份数据库和文件
+**Regular updates:**
+- Keep the WordPress core, plugins, and themes up to date
+- Enable automatic updates for minor versions: `add_filter('auto_update_core', '__return_true');`
+- Always back up the database and files before updating
 
-**其他安全措施：**
-- 删除默认 `admin` 用户，创建新管理员账号
-- 使用强密码（16 位以上，含大小写字母、数字、特殊字符）
-- 启用双因素认证（推荐 `Wordfence Login Security` 插件）
-- 修改 wp-login.php 路径（通过插件或 Nginx rewrite 规则）
-- 隐藏 WordPress 版本号：`remove_action('wp_head', 'wp_generator');`
+**Other security measures:**
+- Delete the default `admin` user and create a new admin account
+- Use strong passwords (16+ characters, with uppercase and lowercase letters, numbers, and special characters)
+- Enable two-factor authentication (the `Wordfence Login Security` plugin is recommended)
+- Change the wp-login.php path (via a plugin or Nginx rewrite rules)
+- Hide the WordPress version number: `remove_action('wp_head', 'wp_generator');`
 
-### Ghost 安全
+### Ghost Security
 
-- Ghost 内置了较好的安全机制，包括自动 HTTPS 重定向
-- 定期更新 Ghost 版本：`docker compose pull && docker compose up -d`
-- 配置强密码和双因素认证（Ghost 后台 → Settings → Staff）
-- 使用 Nginx 限制 `/ghost/api/admin` 的访问频率
-- 定期备份数据库和 content 目录
+- Ghost has built-in security mechanisms, including automatic HTTPS redirects
+- Update Ghost regularly: `docker compose pull && docker compose up -d`
+- Configure strong passwords and two-factor authentication (Ghost admin → Settings → Staff)
+- Use Nginx to rate-limit access to `/ghost/api/admin`
+- Regularly back up the database and the content directory

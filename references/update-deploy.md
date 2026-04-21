@@ -1,46 +1,46 @@
-# 更新部署指南
+# Update Deployment Guide
 
-## 概述
+## Overview
 
-### 首次部署 vs 更新部署
+### First Deployment vs Update Deployment
 
-| 维度 | 首次部署 | 更新部署 |
-|------|---------|---------|
-| 定义 | 从零搭建完整运行环境 | 代码变更后重建并重启服务 |
-| 环境检测 | 需要检测 OS、语言版本、包管理器 | 跳过，环境已就绪 |
-| 依赖安装 | 全量安装 | 仅安装新增/变更的依赖 |
-| 配置生成 | 生成 `.env`、`nginx.conf`、`docker-compose.yml` 等 | 仅检查是否有新配置项 |
-| 数据库 | 初始化建库建表 | 执行增量迁移（如有） |
-| 风险 | 低（新环境无历史包袱） | 高（必须保证线上服务不中断） |
+| Dimension | First Deployment | Update Deployment |
+|-----------|-----------------|-------------------|
+| Definition | Setting up a complete runtime environment from scratch | Rebuilding and restarting services after code changes |
+| Environment Detection | Requires detecting OS, language version, package manager | Skipped; environment is already ready |
+| Dependency Installation | Full installation | Only install new/changed dependencies |
+| Configuration Generation | Generate `.env`, `nginx.conf`, `docker-compose.yml`, etc. | Only check for new configuration items |
+| Database | Initialize database and tables | Run incremental migrations (if any) |
+| Risk | Low (new environment, no legacy baggage) | High (must ensure no disruption to live services) |
 
-**核心原则**：更新部署的目标是在不中断现有服务的前提下，将代码变更安全地发布到生产环境。AI 在执行更新部署时，**必须严格按照以下四个阶段顺序执行**，不得跳过任何步骤。
+**Core Principle**: The goal of update deployment is to safely release code changes to production without interrupting existing services. When performing an update deployment, the AI **must strictly follow the four phases below in order** and must not skip any step.
 
 ---
 
-## 更新部署完整流程（AI 必须严格按此顺序执行）
+## Complete Update Deployment Workflow (AI Must Follow This Order Strictly)
 
-### Phase 1: 部署前检查
+### Phase 1: Pre-Deploy Check
 
-> **AI 注意**：此阶段所有检查必须全部通过后，才能进入 Phase 2。任何一项检查失败，必须先解决问题再继续。
+> **AI Note**: All checks in this phase must pass before proceeding to Phase 2. If any check fails, the issue must be resolved before continuing.
 
-#### 1.1 备份当前版本
+#### 1.1 Back Up the Current Version
 
-**为什么**：万一更新失败，可以立即回滚到上一个正常运行的版本，将故障时间压缩到最小。
+**Why**: In case the update fails, you can immediately roll back to the last working version, minimizing downtime.
 
-**Docker 部署备份**：
+**Docker Deployment Backup:**
 
 ```bash
-# 记录当前运行的镜像信息
+# Record currently running image information
 docker compose ps --format "table {{.Name}}\t{{.Image}}\t{{.Status}}" > /backups/pre-deploy-$(date +%Y%m%d%H%M%S).txt
 
-# 保存当前应用镜像（仅保存 app 服务镜像，不保存数据库镜像）
+# Save the current application image (only save the app service image, not the database image)
 docker save $(docker compose images -q app) -o /backups/app-image-$(date +%Y%m%d%H%M%S).tar
 ```
 
-**服务器部署备份**：
+**Server Deployment Backup:**
 
 ```bash
-# 打包当前代码（排除不必要的目录以节省空间和时间）
+# Package the current code (exclude unnecessary directories to save space and time)
 cd /var/www/myapp
 tar -czf /backups/myapp-backup-$(date +%Y%m%d%H%M%S).tar.gz \
   --exclude='node_modules' \
@@ -53,7 +53,7 @@ tar -czf /backups/myapp-backup-$(date +%Y%m%d%H%M%S).tar.gz \
   .
 ```
 
-**数据库备份（仅当此次更新涉及数据库 schema 变更时执行）**：
+**Database Backup (only execute when this update involves database schema changes):**
 
 ```bash
 # MySQL
@@ -66,171 +66,171 @@ pg_dump -U "$DB_USER" -d "$DB_NAME" -F c -f /backups/db-backup-$(date +%Y%m%d%H%
 mongodump --uri="$MONGO_URI" --out=/backups/mongo-backup-$(date +%Y%m%d%H%M%S)
 ```
 
-**自动清理旧备份（保留最近 3 个）**：
+**Automatic Cleanup of Old Backups (keep the most recent 3):**
 
 ```bash
-# 清理代码备份
+# Clean up code backups
 ls -t /backups/myapp-backup-*.tar.gz | tail -n +4 | xargs -r rm -f
 
-# 清理镜像备份
+# Clean up image backups
 ls -t /backups/app-image-*.tar | tail -n +4 | xargs -r rm -f
 
-# 清理数据库备份
+# Clean up database backups
 ls -t /backups/db-backup-* | tail -n +4 | xargs -r rm -f
 ```
 
-#### 1.2 检查变更内容
+#### 1.2 Review Changes
 
-**目的**：确认哪些文件发生了变化，判断是否涉及数据库迁移、配置变更等高风险操作。
+**Purpose**: Confirm which files have changed and determine whether the changes involve high-risk operations such as database migrations or configuration changes.
 
 ```bash
-# 查看最近一次提交的变更概览
+# View an overview of the latest commit's changes
 git log --oneline -5
 git diff --stat HEAD~1
 
-# 如果是多次提交，查看所有未部署的变更
-git diff --stat origin/main...HEAD  # 如果在本地分支
-git diff --stat HEAD~3..HEAD        # 查看最近 3 次提交
+# If there are multiple commits, view all undeployed changes
+git diff --stat origin/main...HEAD  # If on a local branch
+git diff --stat HEAD~3..HEAD        # View the last 3 commits
 
-# 检查是否包含数据库迁移文件
-git diff --name-only HEAD~1 | grep -E '(migration|migrate|schema)' && echo "WARNING: 数据库迁移文件已变更！" || echo "无数据库迁移变更"
+# Check if database migration files are included
+git diff --name-only HEAD~1 | grep -E '(migration|migrate|schema)' && echo "WARNING: Database migration files have changed!" || echo "No database migration changes"
 
-# 检查是否包含配置文件变更
-git diff --name-only HEAD~1 | grep -E '(\.env\.example|docker-compose|nginx\.conf|Dockerfile)' && echo "WARNING: 配置文件已变更！" || echo "无配置文件变更"
+# Check if configuration file changes are included
+git diff --name-only HEAD~1 | grep -E '(\.env\.example|docker-compose|nginx\.conf|Dockerfile)' && echo "WARNING: Configuration files have changed!" || echo "No configuration file changes"
 ```
 
-**变更分类与处理策略**：
+**Change Classification and Handling Strategy:**
 
-| 变更类型 | 风险等级 | 额外操作 |
-|---------|---------|---------|
-| 纯前端代码（HTML/CSS/JS/图片） | 低 | 正常流程 |
-| 后端业务逻辑 | 中 | 部署后重点检查相关 API |
-| 数据库 migration 文件 | 高 | 必须备份数据库，部署后执行迁移 |
-| 环境变量 / 配置文件 | 高 | 必须对比 `.env.example`，确认新变量 |
-| 依赖版本变更（package.json / requirements.txt） | 中 | 需要重新安装依赖 |
-| Dockerfile 变更 | 中 | 需要重新构建镜像 |
+| Change Type | Risk Level | Additional Actions |
+|-------------|-----------|-------------------|
+| Frontend-only code (HTML/CSS/JS/images) | Low | Normal workflow |
+| Backend business logic | Medium | Focus on checking related APIs after deployment |
+| Database migration files | High | Must back up database; run migrations after deployment |
+| Environment variables / configuration files | High | Must compare with `.env.example` and confirm new variables |
+| Dependency version changes (package.json / requirements.txt) | Medium | Dependencies must be reinstalled |
+| Dockerfile changes | Medium | Images must be rebuilt |
 
-#### 1.3 预检环境
+#### 1.3 Pre-Check the Environment
 
-**目的**：确认部署环境仍然正常，避免在异常环境中叠加更新导致问题难以排查。
+**Purpose**: Confirm the deployment environment is still healthy to avoid stacking an update on an already abnormal environment, which would make troubleshooting difficult.
 
 ```bash
-# 检查磁盘空间（至少需要 2GB 可用）
+# Check disk space (at least 2GB free required)
 AVAILABLE=$(df / | awk 'NR==2 {print $4}')
 if [ "$AVAILABLE" -lt 2097152 ]; then
-  echo "ERROR: 磁盘空间不足，可用空间: $((AVAILABLE/1024))MB，需要至少 2048MB"
+  echo "ERROR: Insufficient disk space, available: $((AVAILABLE/1024))MB, need at least 2048MB"
   exit 1
 fi
-echo "磁盘空间充足: $((AVAILABLE/1024/1024))GB 可用"
+echo "Sufficient disk space: $((AVAILABLE/1024/1024))GB available"
 
-# Docker 部署：检查 Docker daemon 是否运行
-docker info > /dev/null 2>&1 && echo "Docker 运行正常" || echo "ERROR: Docker daemon 未运行"
+# Docker deployment: check if Docker daemon is running
+docker info > /dev/null 2>&1 && echo "Docker is running normally" || echo "ERROR: Docker daemon is not running"
 
-# 检查服务当前是否健康
-curl -sf http://localhost:${PORT}/health && echo "服务健康检查通过" || echo "WARNING: 服务健康检查失败，当前服务可能已异常"
+# Check if the service is currently healthy
+curl -sf http://localhost:${PORT}/health && echo "Service health check passed" || echo "WARNING: Service health check failed, the current service may already be abnormal"
 ```
 
 ---
 
-### Phase 2: 执行更新
+### Phase 2: Execute the Update
 
-> **AI 注意**：根据实际部署方式，选择以下三条路径之一执行。不得混用不同路径的命令。
+> **AI Note**: Choose one of the three paths below based on the actual deployment method. Do not mix commands from different paths.
 
-#### 2.1 Docker 部署路径
+#### 2.1 Docker Deployment Path
 
 ```bash
-# Step 1: 拉取最新代码
+# Step 1: Pull the latest code
 git fetch origin
 git pull origin main
 
-# Step 2: 检查 .env 文件是否有新变量
+# Step 2: Check if the .env file has new variables
 diff <(grep -v '^#' .env | grep -v '^$' | sort) \
      <(grep -v '^#' .env.example | grep -v '^$' | sort) \
-  && echo ".env 无新变量" \
-  || echo "WARNING: .env 与 .env.example 存在差异，请检查是否需要添加新变量"
+  && echo ".env has no new variables" \
+  || echo "WARNING: .env differs from .env.example, please check if new variables need to be added"
 
-# Step 3: 重建镜像（仅重建应用镜像，不重建数据库等基础服务）
+# Step 3: Rebuild images (only rebuild the application image, not database and other base services)
 docker compose build --no-cache app
 
-# Step 4: 滚动更新（仅更新 app 服务，数据库和缓存等不受影响）
+# Step 4: Rolling update (only update the app service; database and cache are unaffected)
 docker compose up -d --build app
 
-# Step 5: 等待健康检查通过（最多等待 120 秒）
-echo "等待服务启动..."
+# Step 5: Wait for health check to pass (wait up to 120 seconds)
+echo "Waiting for service to start..."
 for i in $(seq 1 24); do
   STATUS=$(docker compose ps --format "{{.Health}}" app 2>/dev/null || echo "unknown")
   if [ "$STATUS" = "healthy" ]; then
-    echo "服务已健康启动"
+    echo "Service started healthily"
     break
   fi
   if [ "$i" -eq 24 ]; then
-    echo "ERROR: 服务启动超时（120秒），请检查日志"
+    echo "ERROR: Service startup timed out (120 seconds), please check logs"
     docker compose logs --tail=50 app
     exit 1
   fi
   sleep 5
 done
 
-# Step 6: 如果有数据库迁移，在服务健康后执行
+# Step 6: If there are database migrations, execute them after the service is healthy
 if git diff --name-only HEAD~1 | grep -qE '(migration|migrate)'; then
-  echo "检测到数据库迁移文件，正在执行迁移..."
+  echo "Database migration files detected, running migrations..."
   docker compose exec -T app npx prisma migrate deploy
-  # 或: docker compose exec -T app python manage.py migrate --noinput
-  # 或: docker compose exec -T app npx typeorm migration:run
-  echo "数据库迁移完成"
+  # Or: docker compose exec -T app python manage.py migrate --noinput
+  # Or: docker compose exec -T app npx typeorm migration:run
+  echo "Database migration complete"
 fi
 
-# Step 7: 清理旧镜像
+# Step 7: Clean up old images
 docker image prune -f
 ```
 
-#### 2.2 服务器部署路径（Nginx + systemd）
+#### 2.2 Server Deployment Path (Nginx + systemd)
 
 ```bash
-# Step 1: 拉取最新代码
+# Step 1: Pull the latest code
 git fetch origin
 git pull origin main
 
-# Step 2: 安装新依赖（仅安装生产依赖）
-# Node.js 项目
+# Step 2: Install new dependencies (production dependencies only)
+# Node.js project
 npm ci --production
-# Python 项目
+# Python project
 # pip install -r requirements.txt --no-cache-dir
 
-# Step 3: 执行构建
+# Step 3: Execute the build
 npm run build
-# 构建产物通常输出到 dist/ 或 build/ 目录
+# Build output is typically in the dist/ or build/ directory
 
-# Step 4: 如果有数据库迁移
+# Step 4: If there are database migrations
 if git diff --name-only HEAD~1 | grep -qE '(migration|migrate)'; then
-  echo "检测到数据库迁移文件，正在执行迁移..."
+  echo "Database migration files detected, running migrations..."
   python manage.py migrate --noinput
-  # 或: npx prisma migrate deploy
-  echo "数据库迁移完成"
+  # Or: npx prisma migrate deploy
+  echo "Database migration complete"
 fi
 
-# Step 5: 重启服务
+# Step 5: Restart the service
 sudo systemctl restart myapp
 
-# Step 6: 等待服务就绪并检查状态
+# Step 6: Wait for the service to be ready and check status
 sleep 3
 sudo systemctl status myapp --no-pager
 if [ $? -ne 0 ]; then
-  echo "ERROR: 服务启动失败，正在查看错误日志..."
+  echo "ERROR: Service failed to start, checking error logs..."
   sudo journalctl -u myapp --since "1 min ago" --no-pager
   exit 1
 fi
 
-# Step 7: Nginx 无需重启（反向代理配置未变，仅后端服务重启）
-# 如果此次更新涉及 Nginx 配置变更，才需要:
+# Step 7: Nginx does not need to restart (reverse proxy config unchanged, only backend service restarted)
+# Only needed if this update involves Nginx configuration changes:
 # sudo nginx -t && sudo systemctl reload nginx
 ```
 
-#### 2.3 远程服务器部署（SSH）
+#### 2.3 Remote Server Deployment (SSH)
 
 ```bash
-# Step 1: 本地同步文件到远程服务器
-# 排除不需要上传的目录和文件
+# Step 1: Sync files from local to remote server
+# Exclude directories and files that don't need to be uploaded
 rsync -avz --delete \
   --exclude='node_modules' \
   --exclude='.git' \
@@ -242,7 +242,7 @@ rsync -avz --delete \
   --exclude='*.log' \
   ./ user@server:/var/www/myapp/
 
-# Step 2: SSH 远程执行更新命令（组合为一条命令，确保原子性）
+# Step 2: SSH remote execution of update commands (combined into one command to ensure atomicity)
 ssh user@server bash -c "'cd /var/www/myapp && \
   npm ci --production && \
   npm run build && \
@@ -250,155 +250,155 @@ ssh user@server bash -c "'cd /var/www/myapp && \
   sleep 3 && \
   sudo systemctl status myapp --no-pager'"
 
-# Step 3: 远程健康检查
+# Step 3: Remote health check
 ssh user@server "curl -sf http://localhost:${PORT}/health" \
-  && echo "远程服务健康检查通过" \
-  || echo "ERROR: 远程服务健康检查失败"
+  && echo "Remote service health check passed" \
+  || echo "ERROR: Remote service health check failed"
 ```
 
 ---
 
-### Phase 3: 部署后验证
+### Phase 3: Post-Deploy Verification
 
-> **AI 注意**：此阶段所有验证项必须全部通过，部署才算成功。任何一项失败，必须立即排查或执行回滚。
+> **AI Note**: All verification items in this phase must pass for the deployment to be considered successful. If any item fails, you must immediately investigate or perform a rollback.
 
-#### 3.1 健康检查
+#### 3.1 Health Check
 
 ```bash
-# 基础健康检查
+# Basic health check
 curl -sf -o /dev/null -w "HTTP Status: %{http_code}\n" https://your-domain.com/health
-# 期望输出: HTTP Status: 200
+# Expected output: HTTP Status: 200
 
-# 带超时的健康检查（最多等待 30 秒）
+# Health check with timeout (wait up to 30 seconds)
 timeout 30 bash -c 'until curl -sf https://your-domain.com/health > /dev/null 2>&1; do sleep 2; done' \
-  && echo "健康检查通过" \
-  || echo "ERROR: 健康检查超时"
+  && echo "Health check passed" \
+  || echo "ERROR: Health check timed out"
 ```
 
-#### 3.2 检查应用日志
+#### 3.2 Check Application Logs
 
 ```bash
-# Docker 部署
+# Docker deployment
 docker compose logs --tail=50 app
-docker compose logs --tail=50 app 2>&1 | grep -iE '(error|exception|fatal|panic)' && echo "WARNING: 发现错误日志" || echo "无错误日志"
+docker compose logs --tail=50 app 2>&1 | grep -iE '(error|exception|fatal|panic)' && echo "WARNING: Error logs found" || echo "No error logs"
 
-# systemd 服务
+# systemd service
 sudo journalctl -u myapp --since "2 min ago" --no-pager
-sudo journalctl -u myapp --since "2 min ago" --no-pager | grep -iE '(error|exception|fatal|panic)' && echo "WARNING: 发现错误日志" || echo "无错误日志"
+sudo journalctl -u myapp --since "2 min ago" --no-pager | grep -iE '(error|exception|fatal|panic)' && echo "WARNING: Error logs found" || echo "No error logs"
 
-# Nginx 错误日志
+# Nginx error log
 sudo tail -20 /var/log/nginx/error.log
 ```
 
-#### 3.3 功能验证
+#### 3.3 Functional Verification
 
-根据项目类型，验证以下关键功能：
+Depending on the project type, verify the following key functionality:
 
-- **首页加载**：`curl -sf -o /dev/null -w "%{http_code}" https://your-domain.com/` 应返回 200
-- **API 接口**：测试核心 API 端点是否正常响应
-- **静态资源**：确认 CSS/JS/图片等静态资源可正常加载
-- **数据库读写**：如果涉及数据库变更，验证增删改查操作正常
+- **Homepage loading**: `curl -sf -o /dev/null -w "%{http_code}" https://your-domain.com/` should return 200
+- **API endpoints**: Test that core API endpoints respond normally
+- **Static assets**: Confirm that CSS/JS/images and other static assets load correctly
+- **Database read/write**: If database changes are involved, verify that CRUD operations work normally
 
 ---
 
-### Phase 4: 清理
+### Phase 4: Cleanup
 
 ```bash
-# Docker 清理
-docker image prune -f          # 删除 dangling 镜像（未被任何容器引用的镜像）
-docker builder prune -f         # 清理构建缓存
+# Docker cleanup
+docker image prune -f          # Remove dangling images (images not referenced by any container)
+docker builder prune -f         # Clean build cache
 
-# 服务器清理
-# 删除旧的备份文件（保留最近 3 个）
+# Server cleanup
+# Remove old backup files (keep the most recent 3)
 ls -t /backups/myapp-backup-*.tar.gz | tail -n +4 | xargs -r rm -f
 ls -t /backups/app-image-*.tar | tail -n +4 | xargs -r rm -f
 ls -t /backups/db-backup-* | tail -n +4 | xargs -r rm -f
 
-# 清理构建临时文件
+# Clean up build temporary files
 rm -rf /tmp/build-* /tmp/npm-* /tmp/pip-*
 
-# 日志清理（限制日志大小为 100MB）
+# Log cleanup (limit log size to 100MB)
 sudo journalctl --vacuum-size=100M
 
-# 最终磁盘检查
+# Final disk check
 df -h /
-echo "部署后磁盘空间确认完毕"
+echo "Post-deployment disk space confirmed"
 ```
 
 ---
 
-## 回滚机制
+## Rollback Mechanism
 
-> **AI 注意**：当 Phase 3 验证失败时，**必须立即执行回滚**，不得尝试在故障状态下修复。修复应在回滚恢复服务后，在开发环境中进行。
+> **AI Note**: When Phase 3 verification fails, **you must immediately execute a rollback**. Do not attempt to fix issues while in a failed state. Fixes should be performed in the development environment after rolling back and restoring service.
 
-### 触发条件
+### Trigger Conditions
 
-满足以下任一条件，立即触发回滚：
+Immediately trigger a rollback if any of the following conditions are met:
 
-1. 健康检查连续 3 次失败
-2. 服务启动后日志中出现持续报错（非偶发错误）
-3. 关键功能不可用（首页无法访问、核心 API 返回 500）
-4. 响应时间异常升高（超过正常值 3 倍）
+1. Health check fails 3 consecutive times
+2. Persistent errors appear in logs after service startup (not intermittent errors)
+3. Key functionality is unavailable (homepage inaccessible, core API returning 500)
+4. Response time is abnormally high (more than 3x the normal value)
 
-### Docker 回滚
+### Docker Rollback
 
 ```bash
-# Step 1: 标记当前（坏的）版本
+# Step 1: Tag the current (broken) version
 docker tag myapp:latest myapp:failed-$(date +%Y%m%d%H%M%S)
 
-# Step 2: 停止当前容器
+# Step 2: Stop the current container
 docker compose down app
 
-# Step 3: 恢复备份镜像
+# Step 3: Restore the backup image
 docker load -i /backups/app-image-YYYYMMDDHHMMSS.tar
 
-# Step 4: 使用备份镜像重新启动
+# Step 4: Restart using the backup image
 docker compose up -d app
 
-# Step 5: 验证回滚是否成功
+# Step 5: Verify the rollback succeeded
 sleep 5
 docker compose ps
-curl -sf http://localhost:${PORT}/health && echo "回滚成功" || echo "回滚失败，需要人工介入"
+curl -sf http://localhost:${PORT}/health && echo "Rollback successful" || echo "Rollback failed, manual intervention required"
 ```
 
-### 服务器回滚
+### Server Rollback
 
 ```bash
-# Step 1: 停止当前服务
+# Step 1: Stop the current service
 sudo systemctl stop myapp
 
-# Step 2: 恢复代码备份（找到最近的备份文件）
+# Step 2: Restore the code backup (find the most recent backup file)
 BACKUP_FILE=$(ls -t /backups/myapp-backup-*.tar.gz | head -1)
-echo "使用备份文件: $BACKUP_FILE"
+echo "Using backup file: $BACKUP_FILE"
 
-# Step 3: 清理当前代码并恢复
+# Step 3: Clean current code and restore
 cd /var/www/myapp
-rm -rf $(ls -A | grep -v '^\.env$')  # 保留 .env 文件
+rm -rf $(ls -A | grep -v '^\.env$')  # Preserve the .env file
 tar -xzf "$BACKUP_FILE"
 
-# Step 4: 重新安装依赖和构建
+# Step 4: Reinstall dependencies and build
 npm ci --production
 npm run build
 
-# Step 5: 启动服务
+# Step 5: Start the service
 sudo systemctl start myapp
 sleep 3
 sudo systemctl status myapp --no-pager
 
-# Step 6: 验证回滚
-curl -sf http://localhost:${PORT}/health && echo "回滚成功" || echo "回滚失败，需要人工介入"
+# Step 6: Verify the rollback
+curl -sf http://localhost:${PORT}/health && echo "Rollback successful" || echo "Rollback failed, manual intervention required"
 ```
 
-### 数据库回滚
+### Database Rollback
 
 ```bash
-# Django 回滚到指定迁移
+# Django rollback to a specific migration
 python manage.py migrate app_name migration_name
 
-# Prisma 回滚
+# Prisma rollback
 npx prisma migrate resolve --rolled-back migration_name
 
-# 如果有数据库备份，直接恢复（最彻底但数据会丢失回滚期间的变更）
+# If a database backup exists, restore directly (most thorough but changes during the rollback period will be lost)
 # MySQL
 mysql -u root -p"$DB_PASSWORD" "$DB_NAME" < /backups/db-backup-YYYYMMDDHHMMSS.sql
 
@@ -411,13 +411,13 @@ mongorestore --uri="$MONGO_URI" --drop /backups/mongo-backup-YYYYMMDDHHMMSS
 
 ---
 
-## 零停机部署策略
+## Zero-Downtime Deployment Strategies
 
-### Docker 滚动更新
+### Docker Rolling Update
 
-`docker compose up -d --build` 默认行为即为滚动更新：先启动新容器，新容器通过健康检查后再停止旧容器。无需额外配置即可实现零停机。
+The default behavior of `docker compose up -d --build` is a rolling update: it starts the new container first, and only stops the old container after the new container passes its health check. Zero downtime is achieved without additional configuration.
 
-如需多实例滚动更新：
+For multi-instance rolling updates:
 
 ```yaml
 # docker-compose.yml
@@ -427,9 +427,9 @@ services:
     deploy:
       replicas: 2
       update_config:
-        parallelism: 1      # 每次更新 1 个实例
-        delay: 10s          # 实例间间隔 10 秒
-        order: start-first  # 先启动新的再停止旧的
+        parallelism: 1      # Update 1 instance at a time
+        delay: 10s          # 10-second interval between instances
+        order: start-first  # Start new before stopping old
       restart_policy:
         condition: on-failure
     healthcheck:
@@ -439,65 +439,66 @@ services:
       retries: 3
 ```
 
-### 蓝绿部署（高级）
+### Blue-Green Deployment (Advanced)
 
-适用于对可用性要求极高的场景：
+Suitable for scenarios with extremely high availability requirements:
 
 ```
                     ┌──────────────┐
                     │   Nginx /    │
-    用户请求 ──────►│   负载均衡器  │──────┐
+    User Request ──►│   Load       │──────┐
+                    │   Balancer   │      │
                     └──────────────┘      │
                                ┌─────────┴─────────┐
                                ▼                   ▼
                         ┌─────────────┐     ┌─────────────┐
-                        │  蓝环境      │     │  绿环境      │
-                        │  (当前版本)  │     │  (新版本)    │
+                        │  Blue Env   │     │  Green Env  │
+                        │  (Current)  │     │  (New)      │
                         │  v1.2.0     │     │  v1.3.0     │
                         └─────────────┘     └─────────────┘
 ```
 
-**操作流程**：
+**Operation Flow:**
 
-1. 当前流量全部指向蓝环境（生产环境）
-2. 在绿环境部署新版本代码
-3. 在绿环境执行数据库迁移（如果需要）
-4. 验证绿环境健康检查通过
-5. 修改 Nginx upstream 或 DNS，将流量切换到绿环境
-6. 观察绿环境运行状况（至少 5 分钟）
-7. 如果出问题，立即切回蓝环境（仅需改回 upstream 配置并 reload Nginx）
+1. All current traffic points to the blue environment (production)
+2. Deploy the new version code in the green environment
+3. Execute database migrations in the green environment (if needed)
+4. Verify the green environment passes health checks
+5. Modify the Nginx upstream or DNS to switch traffic to the green environment
+6. Monitor the green environment's operation (for at least 5 minutes)
+7. If issues arise, immediately switch back to the blue environment (only need to revert the upstream config and reload Nginx)
 
 ```bash
-# Nginx 切换示例
-# 切换到绿环境
+# Nginx switch example
+# Switch to green environment
 sudo sed -i 's/upstream blue/upstream green/' /etc/nginx/conf.d/upstream.conf
 sudo nginx -t && sudo systemctl reload nginx
 
-# 切回蓝环境
+# Switch back to blue environment
 sudo sed -i 's/upstream green/upstream blue/' /etc/nginx/conf.d/upstream.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### PM2 零停机
+### PM2 Zero Downtime
 
 ```bash
-# 优雅重启：等待现有请求处理完毕后再重启
+# Graceful reload: wait for existing requests to finish before restarting
 pm2 reload app
 
-# 与 pm2 restart 的区别：
-# pm2 restart  → 直接杀进程，正在处理的请求会丢失
-# pm2 reload   → 先 fork 新进程，新进程就绪后再终止旧进程
+# Difference from pm2 restart:
+# pm2 restart  → Kills the process directly; in-flight requests are lost
+# pm2 reload   → Forks a new process first, then terminates the old process only after the new one is ready
 
-# 确认重载成功
+# Confirm reload succeeded
 pm2 status
 pm2 logs app --lines 20 --nostream
 ```
 
 ---
 
-## CI/CD 自动触发
+## CI/CD Automatic Triggering
 
-### GitHub Actions 示例
+### GitHub Actions Example
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -527,41 +528,41 @@ jobs:
             curl -sf http://localhost:3000/health || exit 1
 ```
 
-### Webhook 触发
+### Webhook Trigger
 
-在服务器上部署一个监听脚本，代码仓库 push 事件触发自动部署：
+Deploy a listener script on the server; push events from the code repository trigger automatic deployment:
 
 ```bash
 # /opt/deploy/webhook-listener.sh
 #!/bin/bash
 while true; do
-  # 监听 webhook 端口（需配合 webhook 服务如 webhookd）
-  # 收到 push 事件后执行部署脚本
+  # Listen on the webhook port (requires a webhook service such as webhookd)
+  # Execute the deployment script upon receiving a push event
   /opt/deploy/deploy.sh >> /var/log/deploy.log 2>&1
 done
 ```
 
-### 定时部署（不推荐）
+### Scheduled Deployment (Not Recommended)
 
 ```bash
-# cron 定时拉取（仅作为最后手段，强烈建议使用 CI/CD）
+# Cron-based pull (only as a last resort; CI/CD is strongly recommended)
 # */30 * * * * cd /var/www/myapp && git pull origin main && npm run build && sudo systemctl restart myapp
 ```
 
-> **警告**：定时部署无法保证代码质量（未经测试的代码也会被部署），且无法追溯部署历史。仅在无法搭建 CI/CD 的极端情况下使用。
+> **Warning**: Scheduled deployment cannot guarantee code quality (untested code will also be deployed) and provides no deployment history traceability. Use only in extreme cases where CI/CD cannot be set up.
 
 ---
 
-## AI 操作检查清单
+## AI Operation Checklist
 
-每次执行更新部署时，AI 必须逐项确认以下清单：
+Each time an update deployment is executed, the AI must confirm the following checklist item by item:
 
-- [ ] Phase 1.1 - 已备份当前版本（代码 + 镜像 + 数据库如需要）
-- [ ] Phase 1.2 - 已检查变更内容（确认是否有迁移/配置变更）
-- [ ] Phase 1.3 - 已预检环境（磁盘空间、Docker、服务健康）
-- [ ] Phase 2 - 已选择正确的部署路径并按步骤执行
-- [ ] Phase 3.1 - 健康检查通过
-- [ ] Phase 3.2 - 应用日志无异常错误
-- [ ] Phase 3.3 - 关键功能验证通过
-- [ ] Phase 4 - 已清理旧备份和临时文件
-- [ ] 如验证失败 - 已执行回滚并恢复服务
+- [ ] Phase 1.1 - Current version has been backed up (code + images + database if needed)
+- [ ] Phase 1.2 - Changes have been reviewed (confirmed whether there are migration/configuration changes)
+- [ ] Phase 1.3 - Environment has been pre-checked (disk space, Docker, service health)
+- [ ] Phase 2 - The correct deployment path has been selected and executed step by step
+- [ ] Phase 3.1 - Health check passed
+- [ ] Phase 3.2 - No abnormal errors in application logs
+- [ ] Phase 3.3 - Key functionality verification passed
+- [ ] Phase 4 - Old backups and temporary files have been cleaned up
+- [ ] If verification failed - Rollback has been executed and service has been restored

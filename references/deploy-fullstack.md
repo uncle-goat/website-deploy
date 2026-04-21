@@ -1,20 +1,20 @@
-# 全栈应用部署指南
+# Full-Stack Application Deployment Guide
 
-## Next.js 部署
+## Next.js Deployment
 
-### Standalone 输出模式
+### Standalone Output Mode
 
-Standalone 模式是 Next.js 官方推荐的部署方式，它将所有依赖打包到一个独立目录中，无需完整的 `node_modules`，大幅减小部署体积。
+Standalone mode is the officially recommended deployment method by Next.js. It bundles all dependencies into a standalone directory, eliminating the need for a full `node_modules` and significantly reducing deployment size.
 
-**为什么使用 Standalone 模式：**
-- 将所有必需依赖打包到 `.next/standalone/` 目录
-- 无需上传完整的 `node_modules`（通常数百 MB）
-- 部署包体积可从数百 MB 缩减至几十 MB
-- 启动更快，依赖更可控
+**Why use Standalone mode:**
+- Bundles all required dependencies into the `.next/standalone/` directory
+- No need to upload the full `node_modules` (typically hundreds of MB)
+- Deployment package size can be reduced from hundreds of MB to tens of MB
+- Faster startup with more controlled dependencies
 
-**配置方式：**
+**Configuration:**
 
-在 `next.config.js` 中添加：
+Add the following to `next.config.js`:
 
 ```js
 module.exports = {
@@ -22,19 +22,19 @@ module.exports = {
 };
 ```
 
-**构建产物说明：**
-- `.next/standalone/` — 包含自包含的 Node.js 服务器（`server.js`）
-- `.next/static/` — 静态资源文件（CSS、JS、图片等），需单独提供
-- `public/` — 公共静态文件，需单独提供
+**Build output overview:**
+- `.next/standalone/` — Contains the self-contained Node.js server (`server.js`)
+- `.next/static/` — Static asset files (CSS, JS, images, etc.), must be served separately
+- `public/` — Public static files, must be served separately
 
-> **注意：** `.next/static/` 和 `public/` 不会自动包含在 standalone 目录中，需要手动复制到 `standalone/public/` 下，或通过 Nginx 直接提供。
+> **Note:** `.next/static/` and `public/` are not automatically included in the standalone directory. You need to manually copy them into `standalone/public/`, or serve them directly via Nginx.
 
-### Docker 部署（推荐）
+### Docker Deployment (Recommended)
 
-使用多阶段构建，基于 `Dockerfile.node` 模板进行修改：
+Use a multi-stage build, modifying based on the `Dockerfile.node` template:
 
 ```dockerfile
-# 构建阶段
+# Build stage
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
@@ -42,7 +42,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# 运行阶段
+# Run stage
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -55,7 +55,7 @@ EXPOSE 3000
 CMD ["node", "server.js"]
 ```
 
-**docker-compose.yml 配合 PostgreSQL：**
+**docker-compose.yml with PostgreSQL:**
 
 ```yaml
 version: '3.8'
@@ -87,22 +87,22 @@ volumes:
   db-data:
 ```
 
-### 服务器部署（无 Docker）
+### Server Deployment (Without Docker)
 
-**构建与启动：**
+**Build and start:**
 
 ```bash
-# 构建
+# Build
 npm run build
 
-# 使用 PM2 管理进程
+# Manage the process with PM2
 pm2 start npm --name "nextjs" -- start
 
-# 或直接启动 standalone 服务器
+# Or start the standalone server directly
 node .next/standalone/server.js
 ```
 
-**Systemd 服务配置（`/etc/systemd/system/nextjs.service`）：**
+**Systemd service configuration (`/etc/systemd/system/nextjs.service`):**
 
 ```ini
 [Unit]
@@ -122,7 +122,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-**Nginx 反向代理配置：**
+**Nginx reverse proxy configuration:**
 
 ```nginx
 server {
@@ -147,46 +147,46 @@ server {
 }
 ```
 
-### 环境变量处理
+### Environment Variable Handling
 
-**变量分类：**
+**Variable categories:**
 
-| 类型 | 前缀 | 可访问位置 | 用途 |
-|------|------|-----------|------|
-| 公开变量 | `NEXT_PUBLIC_*` | 客户端 + 服务端 | API 地址、站点名称 |
-| 私有变量 | 无前缀 | 仅服务端 | 数据库密码、API 密钥 |
+| Type | Prefix | Accessible From | Purpose |
+|------|--------|-----------------|---------|
+| Public variables | `NEXT_PUBLIC_*` | Client + Server | API URLs, site name |
+| Private variables | No prefix | Server only | Database passwords, API keys |
 
-**关键规则：**
-- **永远不要**将密钥、密码放在 `NEXT_PUBLIC_*` 变量中，它们会暴露给浏览器
-- `DATABASE_URL`、`JWT_SECRET` 等敏感信息使用无前缀变量
-- Docker 环境：在 `docker-compose.yml` 中使用 `env_file: .env`
-- 服务器环境：在 systemd 中使用 `EnvironmentFile=/path/to/.env`
+**Key rules:**
+- **Never** place secrets or passwords in `NEXT_PUBLIC_*` variables, as they will be exposed to the browser
+- Sensitive information such as `DATABASE_URL` and `JWT_SECRET` should use variables without a prefix
+- Docker environment: use `env_file: .env` in `docker-compose.yml`
+- Server environment: use `EnvironmentFile=/path/to/.env` in systemd
 
-### 数据库迁移
+### Database Migration
 
-**Prisma：**
+**Prisma:**
 
 ```bash
-# 部署前执行迁移
+# Run migrations before deployment
 npx prisma migrate deploy
 
-# 生产环境不要使用 prisma db push
+# Do not use prisma db push in production
 ```
 
-**Drizzle：**
+**Drizzle:**
 
 ```bash
-# 推送 schema 变更
+# Push schema changes
 npm run db:push
 
-# 或使用迁移文件
+# Or use migration files
 drizzle-kit migrate
 ```
 
-**最佳实践：**
-- 迁移作为独立步骤执行，不要放在应用启动命令中
-- 迁移失败时不应启动应用
-- 在 Docker 中使用 entrypoint 脚本先执行迁移再启动：
+**Best practices:**
+- Run migrations as a separate step; do not include them in the application startup command
+- The application should not start if migration fails
+- In Docker, use an entrypoint script to run migrations before starting the application:
 
 ```bash
 #!/bin/sh
@@ -196,17 +196,17 @@ exec node server.js
 
 ---
 
-## Nuxt.js 部署
+## Nuxt.js Deployment
 
-### Nitro 预设
+### Nitro Presets
 
-Nitro 是 Nuxt 3 的服务端引擎，提供多种部署预设：
+Nitro is the server engine for Nuxt 3, providing multiple deployment presets:
 
-- `node-server` — 生成 Node.js 服务器（默认部署预设）
-- `docker` — 自动生成 Dockerfile
-- `static` — 生成纯静态站点（SSG 模式）
+- `node-server` — Generates a Node.js server (default deployment preset)
+- `docker` — Automatically generates a Dockerfile
+- `static` — Generates a purely static site (SSG mode)
 
-**配置方式：**
+**Configuration:**
 
 ```ts
 // nuxt.config.ts
@@ -217,7 +217,7 @@ export default defineNuxtConfig({
 });
 ```
 
-### Docker 部署
+### Docker Deployment
 
 ```dockerfile
 FROM node:20-alpine AS builder
@@ -236,26 +236,26 @@ ENV PORT=3000
 CMD ["node", "server/index.mjs"]
 ```
 
-**构建产物说明：**
-- `.output/` — 包含完整的服务端和公共资源
-- `.output/server/index.mjs` — 入口文件
-- `.output/public/` — 静态资源
+**Build output overview:**
+- `.output/` — Contains the complete server and public assets
+- `.output/server/index.mjs` — Entry file
+- `.output/public/` — Static assets
 
-**环境变量：**
-- `NUXT_PUBLIC_*` — 客户端可访问
-- 无前缀变量 — 仅服务端可访问
-- 规则与 Next.js 相同，注意区分公开与私有变量
+**Environment variables:**
+- `NUXT_PUBLIC_*` — Accessible from the client
+- Variables without prefix — Accessible from the server only
+- The rules are the same as Next.js; be sure to distinguish between public and private variables
 
-### 服务器部署
+### Server Deployment
 
 ```bash
-# 构建
+# Build
 npm run build
 
-# PM2 启动
+# Start with PM2
 pm2 start .output/server/index.mjs --name "nuxt"
 
-# 或使用 ecosystem.config.js
+# Or use ecosystem.config.js
 module.exports = {
   apps: [{
     name: 'nuxt',
@@ -265,4 +265,4 @@ module.exports = {
 };
 ```
 
-Nginx 反向代理配置与 Next.js 类似，将 `proxy_pass` 指向 Nuxt 监听的端口即可。
+The Nginx reverse proxy configuration is similar to Next.js; simply point `proxy_pass` to the port Nuxt is listening on.

@@ -1,15 +1,15 @@
-# SSL 证书配置指南
+# SSL Certificate Configuration Guide
 
 ## Let's Encrypt + certbot
 
-### 为什么选择 Let's Encrypt
+### Why Choose Let's Encrypt
 
-- **免费**：无需支付任何费用，永久免费使用
-- **自动化**：支持自动申请和续期，减少运维负担
-- **可信**：受所有主流浏览器信任，根证书已被广泛预装
-- **通用**：支持单域名、多域名（SAN）和通配符证书
+- **Free**: No fees whatsoever, permanently free to use
+- **Automated**: Supports automatic certificate issuance and renewal, reducing operational overhead
+- **Trusted**: Trusted by all major browsers, with root certificates widely pre-installed
+- **Versatile**: Supports single-domain, multi-domain (SAN), and wildcard certificates
 
-### 安装 certbot
+### Installing certbot
 
 ```bash
 # Ubuntu / Debian
@@ -19,94 +19,94 @@ apt update && apt install -y certbot python3-certbot-nginx
 yum install -y epel-release && yum install -y certbot python3-certbot-nginx
 ```
 
-### 获取证书的四种模式
+### Four Modes for Obtaining Certificates
 
-#### 1. --nginx 模式（推荐）
+#### 1. --nginx Mode (Recommended)
 
-certbot 自动修改 Nginx 配置，最简单的方式。要求 Nginx 已正确配置且监听 80 端口。
+certbot automatically modifies the Nginx configuration. This is the simplest approach. Requires Nginx to be properly configured and listening on port 80.
 
 ```bash
 certbot --nginx -d example.com -d www.example.com
 ```
 
-执行后 certbot 会自动：
-- 验证域名所有权
-- 获取证书并保存到 `/etc/letsencrypt/live/example.com/`
-- 修改 Nginx 配置，添加 SSL 相关指令
-- 配置 HTTP 到 HTTPS 的 301 重定向
+After execution, certbot will automatically:
+- Verify domain ownership
+- Obtain the certificate and save it to `/etc/letsencrypt/live/example.com/`
+- Modify the Nginx configuration to add SSL-related directives
+- Configure a 301 redirect from HTTP to HTTPS
 
-#### 2. --standalone 模式
+#### 2. --standalone Mode
 
-certbot 启动自身的临时 Web 服务器监听 80 端口。适用于 Nginx 尚未配置的情况。
+certbot starts its own temporary web server listening on port 80. Suitable when Nginx is not yet configured.
 
 ```bash
-# 先停止占用 80 端口的服务
+# First, stop the service occupying port 80
 systemctl stop nginx
-# 获取证书
+# Obtain the certificate
 certbot certonly --standalone -d example.com
-# 重新启动 Nginx
+# Restart Nginx
 systemctl start nginx
 ```
 
-#### 3. --webroot 模式
+#### 3. --webroot Mode
 
-certbot 利用现有 Web 服务器的文档根目录放置验证文件。适用于不希望中断现有服务的情况。
+certbot uses the document root of an existing web server to place verification files. Suitable when you do not want to interrupt existing services.
 
 ```bash
 certbot certonly --webroot -w /var/www/html -d example.com
 ```
 
-#### 4. --dns 模式
+#### 4. --dns Mode
 
-使用 DNS-01 验证方式，适用于 80 端口被防火墙阻断或无法访问的场景。
+Uses the DNS-01 challenge method. Suitable when port 80 is blocked by a firewall or is otherwise inaccessible.
 
 ```bash
 certbot certonly --manual --preferred-challenges dns -d example.com
 ```
 
-执行后需要手动添加指定的 TXT 记录到 DNS 配置中，等待生效后按回车继续。
+After execution, you need to manually add the specified TXT record to your DNS configuration, wait for it to take effect, and then press Enter to continue.
 
-### 通配符证书
+### Wildcard Certificates
 
-通配符证书仅支持通过 DNS-01 验证方式获取：
+Wildcard certificates can only be obtained via the DNS-01 challenge method:
 
 ```bash
 certbot certonly --manual --preferred-challenges dns -d "*.example.com" -d "example.com"
 ```
 
-> 注意：每次续期时都需要手动添加 DNS TXT 记录，建议配合 DNS API 插件实现自动化。
+> Note: Each renewal requires manually adding a DNS TXT record. It is recommended to use a DNS API plugin for automation.
 
 ---
 
-## 自动续期
+## Automatic Renewal
 
-### 测试续期
+### Testing Renewal
 
 ```bash
-# 先用 dry-run 测试，确保续期流程正常
+# First, test with a dry-run to ensure the renewal process works correctly
 certbot renew --dry-run
 ```
 
-### Cron 定时任务
+### Cron Scheduled Task
 
 ```bash
-# 编辑 crontab
+# Edit crontab
 crontab -e
 
-# 添加以下行：每天凌晨 3 点检查并续期，续期成功后重载 Nginx
+# Add the following line: check and renew every day at 3:00 AM, reload Nginx after successful renewal
 0 3 * * * certbot renew --quiet --deploy-hook "systemctl reload nginx"
 ```
 
-### systemd timer
+### systemd Timer
 
-certbot 安装后通常会自动启用 `certbot.timer`，可通过以下命令确认：
+After installing certbot, `certbot.timer` is typically enabled automatically. You can verify this with the following commands:
 
 ```bash
 systemctl status certbot.timer
 systemctl list-timers | grep certbot
 ```
 
-如未启用：
+If it is not enabled:
 
 ```bash
 systemctl enable certbot.timer
@@ -115,9 +115,9 @@ systemctl start certbot.timer
 
 ---
 
-## Nginx SSL 配置
+## Nginx SSL Configuration
 
-以下为推荐的生产环境 SSL 配置：
+Below is the recommended SSL configuration for production environments:
 
 ```nginx
 server {
@@ -133,22 +133,22 @@ server {
     ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
-    # 协议版本
+    # Protocol versions
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    # 加密套件（现代推荐配置）
+    # Cipher suites (modern recommended configuration)
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
 
-    # HSTS：强制浏览器使用 HTTPS（有效期 1 年，包含子域名）
+    # HSTS: force browsers to use HTTPS (1-year validity, includes subdomains)
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    # OCSP Stapling：减少客户端验证延迟
+    # OCSP Stapling: reduces client verification latency
     ssl_stapling on;
     ssl_stapling_verify on;
     ssl_trusted_certificate /etc/letsencrypt/live/example.com/chain.pem;
     resolver 8.8.8.8 8.8.4.4 valid=300s;
 
-    # SSL 会话缓存
+    # SSL session cache
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
@@ -160,47 +160,47 @@ server {
 
 ---
 
-## 常见问题排查
+## Common Troubleshooting
 
-### 证书获取失败
+### Certificate Issuance Failure
 
-1. **DNS 解析问题**：确认域名 A 记录已正确指向服务器 IP
+1. **DNS resolution issues**: Confirm that the domain's A record correctly points to the server IP
    ```bash
    dig example.com +short
    ```
-2. **80 端口不可达**：检查防火墙是否放行 80 和 443 端口
+2. **Port 80 unreachable**: Check whether the firewall allows ports 80 and 443
    ```bash
    ufw allow 80/tcp && ufw allow 443/tcp
    ```
-3. **Nginx 配置错误**：检查 Nginx 配置语法
+3. **Nginx configuration errors**: Check the Nginx configuration syntax
    ```bash
    nginx -t
    ```
 
-### 证书续期失败
+### Certificate Renewal Failure
 
-- 查看 certbot 日志定位原因：
+- Check the certbot logs to identify the cause:
   ```bash
   cat /var/log/letsencrypt/letsencrypt.log
   ```
-- 常见原因：DNS 记录变更、服务器端口不通、磁盘空间不足
+- Common causes: DNS record changes, server port unreachable, insufficient disk space
 
-### 混合内容（Mixed Content）
+### Mixed Content
 
-浏览器会阻止 HTTPS 页面中加载 HTTP 资源。排查方法：
+Browsers will block HTTP resources loaded within an HTTPS page. Troubleshooting steps:
 
-- 使用浏览器开发者工具（F12）-> Console 查看混合内容警告
-- 全站搜索替换 `http://` 为 `https://`
-- Nginx 中可添加 CSP 头辅助检测：
+- Use the browser developer tools (F12) → Console to check for mixed content warnings
+- Search and replace `http://` with `https://` across the entire site
+- You can add a CSP header in Nginx to help detect mixed content:
   ```nginx
   add_header Content-Security-Policy "upgrade-insecure-requests" always;
   ```
 
-### 证书不受信任
+### Certificate Not Trusted
 
-- 检查是否使用了完整的证书链（`fullchain.pem` 而非 `cert.pem`）
-- 确认中间证书已正确配置，Let's Encrypt 的 `chain.pem` 包含所需的中间证书
-- 使用在线工具（如 SSL Labs）检测证书链完整性：
+- Check whether you are using the full certificate chain (`fullchain.pem` instead of `cert.pem`)
+- Confirm that the intermediate certificate is correctly configured; Let's Encrypt's `chain.pem` contains the required intermediate certificate
+- Use an online tool (such as SSL Labs) to check the certificate chain integrity:
   ```
   https://www.ssllabs.com/ssltest/analyze.html?d=example.com
   ```

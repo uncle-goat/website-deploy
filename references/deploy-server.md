@@ -1,27 +1,27 @@
-# 传统云服务器部署指南
+# Traditional Cloud Server Deployment Guide
 
-本文档涵盖使用 Nginx、systemd、SSH 在传统云服务器上部署 Web 应用的完整流程。
+This document covers the complete workflow for deploying web applications on traditional cloud servers using Nginx, systemd, and SSH.
 
 ---
 
-## Nginx 反向代理配置
+## Nginx Reverse Proxy Configuration
 
-### 为什么需要反向代理
+### Why You Need a Reverse Proxy
 
-- **SSL 终止**：统一处理 HTTPS 证书，后端服务无需关心加密
-- **负载均衡**：多实例分发请求，提升可用性
-- **静态文件缓存**：Nginx 直接处理静态资源，减轻后端压力
-- **安全头注入**：统一添加安全相关 HTTP 响应头
-- **Gzip 压缩**：减少传输体积，加快页面加载
+- **SSL termination:** Centrally handles HTTPS certificates; backend services do not need to handle encryption
+- **Load balancing:** Distributes requests across multiple instances, improving availability
+- **Static file caching:** Nginx serves static resources directly, reducing backend load
+- **Security header injection:** Uniformly adds security-related HTTP response headers
+- **Gzip compression:** Reduces transfer size and speeds up page loading
 
-### 基础配置结构
+### Basic Configuration Structure
 
 ```nginx
 # /etc/nginx/conf.d/myapp.conf
 
 upstream backend {
-    server 127.0.0.1:3000;      # Node.js 应用
-    # server 127.0.0.1:3001;   # 可添加更多实例实现负载均衡
+    server 127.0.0.1:3000;      # Node.js application
+    # server 127.0.0.1:3001;   # Add more instances for load balancing
     keepalive 32;
 }
 
@@ -29,7 +29,7 @@ server {
     listen 80;
     server_name example.com www.example.com;
 
-    # HTTP 重定向到 HTTPS
+    # Redirect HTTP to HTTPS
     return 301 https://$host$request_uri;
 }
 
@@ -37,31 +37,31 @@ server {
     listen 443 ssl http2;
     server_name example.com www.example.com;
 
-    # SSL 证书配置（Let's Encrypt）
+    # SSL certificate configuration (Let's Encrypt)
     ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
-    # 安全响应头
+    # Security response headers
     add_header X-Content-Type-Options  "nosniff" always;
     add_header X-Frame-Options         "SAMEORIGIN" always;
     add_header X-XSS-Protection        "1; mode=block" always;
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
-    # Gzip 压缩
+    # Gzip compression
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml;
     gzip_min_length 1000;
 
-    # 静态文件（带缓存）
+    # Static files (with caching)
     location /static/ {
         alias /var/www/myapp/static/;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
 
-    # 反向代理到后端
+    # Reverse proxy to backend
     location / {
         proxy_pass http://backend;
         proxy_http_version 1.1;
@@ -70,7 +70,7 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # WebSocket 支持
+        # WebSocket support
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 86400;
@@ -78,9 +78,9 @@ server {
 }
 ```
 
-### 多站点配置
+### Multi-Site Configuration
 
-每个域名使用独立的配置文件，放在 `/etc/nginx/conf.d/` 下：
+Each domain uses a separate configuration file, placed under `/etc/nginx/conf.d/`:
 
 ```
 /etc/nginx/conf.d/
@@ -89,28 +89,28 @@ server {
 └── site-c.conf
 ```
 
-### 测试与重载
+### Testing and Reloading
 
 ```bash
-# 检查配置语法
+# Check configuration syntax
 sudo nginx -t
 
-# 重载配置（不中断服务）
+# Reload configuration (without interrupting service)
 sudo systemctl reload nginx
 ```
 
 ---
 
-## systemd 服务配置
+## systemd Service Configuration
 
-### 为什么使用 systemd
+### Why Use systemd
 
-- **进程守护**：应用崩溃后自动重启
-- **开机自启**：服务器重启后自动拉起服务
-- **日志管理**：通过 `journalctl` 统一查看日志
-- **资源控制**：可限制 CPU、内存等资源
+- **Process supervision:** Automatically restarts the application after a crash
+- **Start on boot:** Automatically starts the service after a server reboot
+- **Log management:** Centrally view logs via `journalctl`
+- **Resource control:** Can limit CPU, memory, and other resources
 
-### Node.js 应用服务
+### Node.js Application Service
 
 ```ini
 # /etc/systemd/system/myapp.service
@@ -134,7 +134,7 @@ SyslogIdentifier=myapp
 WantedBy=multi-user.target
 ```
 
-### Python 应用服务（Gunicorn）
+### Python Application Service (Gunicorn)
 
 ```ini
 # /etc/systemd/system/myapp.service
@@ -160,7 +160,7 @@ EnvironmentFile=/var/www/myapp/.env
 WantedBy=multi-user.target
 ```
 
-### Python 应用服务（Uvicorn）
+### Python Application Service (Uvicorn)
 
 ```ini
 ExecStart=/var/www/myapp/venv/bin/uvicorn \
@@ -170,66 +170,66 @@ ExecStart=/var/www/myapp/venv/bin/uvicorn \
     app:app
 ```
 
-### 常用管理命令
+### Common Management Commands
 
 ```bash
-# 加载新服务文件
+# Reload new service files
 sudo systemctl daemon-reload
 
-# 启用并立即启动（开机自启 + 立即运行）
+# Enable and start immediately (start on boot + run now)
 sudo systemctl enable --now myapp
 
-# 查看服务状态
+# View service status
 sudo systemctl status myapp
 
-# 重启服务
+# Restart service
 sudo systemctl restart myapp
 
-# 停止服务
+# Stop service
 sudo systemctl stop myapp
 
-# 查看实时日志
+# View real-time logs
 sudo journalctl -u myapp -f
 
-# 查看最近 100 行日志
+# View the last 100 lines of logs
 sudo journalctl -u myapp -n 100
 ```
 
-### 使用 PM2（Node.js 替代方案）
+### Using PM2 (Node.js Alternative)
 
 ```bash
-# 安装 PM2
+# Install PM2
 npm install -g pm2
 
-# 启动应用
+# Start application
 pm2 start server.js --name myapp
 
-# 生成 systemd 服务（实现开机自启）
+# Generate systemd service (for start on boot)
 pm2 startup
 pm2 save
 ```
 
 ---
 
-## SSH 远程部署
+## SSH Remote Deployment
 
-### 密钥认证配置
+### Key Authentication Configuration
 
 ```bash
-# 生成密钥对（本地执行）
+# Generate a key pair (run locally)
 ssh-keygen -t ed25519 -C "deploy"
 
-# 复制公钥到服务器
+# Copy public key to the server
 ssh-copy-id -i ~/.ssh/id_ed25519.pub user@your-server-ip
 
-# 验证免密登录
+# Verify passwordless login
 ssh user@your-server-ip "echo OK"
 ```
 
-### 文件同步（rsync）
+### File Synchronization (rsync)
 
 ```bash
-# 同步项目文件到服务器，排除不需要的目录
+# Sync project files to the server, excluding unnecessary directories
 rsync -avz --delete \
     --exclude='node_modules' \
     --exclude='.git' \
@@ -239,13 +239,13 @@ rsync -avz --delete \
     ./ user@your-server-ip:/var/www/myapp/
 ```
 
-### 远程命令执行
+### Remote Command Execution
 
 ```bash
-# 在服务器上执行单条命令
+# Execute a single command on the server
 ssh user@your-server-ip "cd /var/www/myapp && npm install && npm run build"
 
-# 执行多条命令
+# Execute multiple commands
 ssh user@your-server-ip "bash -s" << 'EOF'
 cd /var/www/myapp
 npm install --production
@@ -254,17 +254,17 @@ sudo systemctl restart myapp
 EOF
 ```
 
-### 自动化部署脚本
+### Automated Deployment Script
 
 ```bash
 #!/bin/bash
-# deploy.sh - 项目根目录下执行
+# deploy.sh - Run from the project root directory
 
 SERVER="user@your-server-ip"
 REMOTE_DIR="/var/www/myapp"
 SERVICE_NAME="myapp"
 
-echo ">>> 同步文件..."
+echo ">>> Syncing files..."
 rsync -avz --delete \
     --exclude='node_modules' \
     --exclude='.git' \
@@ -273,7 +273,7 @@ rsync -avz --delete \
     --exclude='.env' \
     ./ ${SERVER}:${REMOTE_DIR}/
 
-echo ">>> 远程构建..."
+echo ">>> Remote build..."
 ssh ${SERVER} "bash -s" << EOF
 cd ${REMOTE_DIR}
 npm install --production
@@ -282,29 +282,29 @@ sudo systemctl restart ${SERVICE_NAME}
 sudo systemctl status ${SERVICE_NAME} --no-pager
 EOF
 
-echo ">>> 部署完成"
+echo ">>> Deployment complete"
 ```
 
 ---
 
-## 防火墙配置
+## Firewall Configuration
 
-使用 UFW（Ubuntu 默认防火墙）：
+Using UFW (Ubuntu's default firewall):
 
 ```bash
-# 允许 SSH（重要：先放行 SSH，避免锁死）
+# Allow SSH (important: allow SSH first to avoid lockout)
 sudo ufw allow OpenSSH
 
-# 允许 HTTP 和 HTTPS（Nginx Full 预设规则）
+# Allow HTTP and HTTPS (Nginx Full preset rule)
 sudo ufw allow 'Nginx Full'
 
-# 启用防火墙
+# Enable the firewall
 sudo ufw enable
 
-# 查看防火墙状态
+# View firewall status
 sudo ufw status verbose
 
-# 输出示例：
+# Example output:
 # Status: active
 # To                         Action      From
 # --                         ------      ----
@@ -314,47 +314,47 @@ sudo ufw status verbose
 
 ---
 
-## 日志管理
+## Log Management
 
-### Nginx 日志
+### Nginx Logs
 
 ```bash
-# 访问日志
+# Access log
 sudo tail -f /var/log/nginx/access.log
 
-# 错误日志
+# Error log
 sudo tail -f /var/log/nginx/error.log
 
-# 按域名过滤（如果配置了独立日志）
-# 在 server 块中添加：
+# Filter by domain (if separate logs are configured)
+# Add to the server block:
 #   access_log /var/log/nginx/myapp_access.log;
 #   error_log  /var/log/nginx/myapp_error.log;
 ```
 
-### 应用日志
+### Application Logs
 
 ```bash
-# systemd 服务日志（实时跟踪）
+# systemd service logs (real-time tracking)
 sudo journalctl -u myapp -f
 
-# 查看今天的日志
+# View today's logs
 sudo journalctl -u myapp --since today
 
-# 查看最近 1 小时的日志
+# View logs from the last hour
 sudo journalctl -u myapp --since "1 hour ago"
 
-# 导出日志到文件
+# Export logs to a file
 sudo journalctl -u myapp --since today > myapp.log
 ```
 
-### 日志轮转
+### Log Rotation
 
-Nginx 和 journald 通常已预配置日志轮转，无需额外设置：
+Nginx and journald typically have log rotation pre-configured and require no additional setup:
 
-- **Nginx**：`/etc/logrotate.d/nginx` 默认按天轮转，保留 14 天
-- **journald**：`/etc/systemd/journald.conf` 中 `SystemMaxUse` 控制最大占用空间
+- **Nginx:** `/etc/logrotate.d/nginx` rotates daily by default, keeping 14 days
+- **journald:** `SystemMaxUse` in `/etc/systemd/journald.conf` controls the maximum disk usage
 
-如需自定义应用日志轮转：
+For custom application log rotation:
 
 ```ini
 # /etc/logrotate.d/myapp

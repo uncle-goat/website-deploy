@@ -1,172 +1,172 @@
-# 环境检测指南
+# Environment Detection Guide
 
-本文档说明 `detect-environment.sh` 的输出字段及其在部署决策中的用途。
+This document describes the output fields of `detect-environment.sh` and how they are used in deployment decisions.
 
-## 检测项说明
+## Detection Items
 
-### os — 操作系统信息
+### os -- Operating System Information
 
-| 字段 | 说明 |
-|------|------|
-| name | 发行版名称（Ubuntu / CentOS / Debian / Alpine 等） |
-| version | 主版本号 |
-| arch | 架构（x86_64 / aarch64） |
+| Field | Description |
+|-------|-------------|
+| name | Distribution name (Ubuntu / CentOS / Debian / Alpine, etc.) |
+| version | Major version number |
+| arch | Architecture (x86_64 / aarch64) |
 
-**决策影响：** 不同发行版使用不同的包管理器（apt / yum / apk），影响依赖安装命令的生成。arch 决定能否拉取对应架构的 Docker 镜像。
+**Decision impact:** Different distributions use different package managers (apt / yum / apk), which affects the generated dependency installation commands. The `arch` field determines whether Docker images for the corresponding architecture can be pulled.
 
-### resources — 硬件资源
+### resources -- Hardware Resources
 
-| 字段 | 说明 |
-|------|------|
-| cpu_cores | CPU 核心数 |
-| memory_mb | 可用内存（MB） |
-| disk_free_gb | 磁盘剩余空间（GB） |
+| Field | Description |
+|-------|-------------|
+| cpu_cores | Number of CPU cores |
+| memory_mb | Available memory (MB) |
+| disk_free_gb | Free disk space (GB) |
 
-**最低资源要求：**
+**Minimum resource requirements:**
 
-| 部署方式 | 最低内存 | 最低磁盘 |
-|----------|----------|----------|
-| Docker 部署 | 2 GB | 10 GB |
-| 完整服务端部署 | 1 GB | 5 GB |
-| 静态站点 | 512 MB | 1 GB |
-| CMS（WordPress） | 2 GB | 20 GB |
+| Deployment Method | Minimum Memory | Minimum Disk |
+|-------------------|----------------|--------------|
+| Docker Deployment | 2 GB | 10 GB |
+| Full Server Deployment | 1 GB | 5 GB |
+| Static Site | 512 MB | 1 GB |
+| CMS (WordPress) | 2 GB | 20 GB |
 
-资源不足时应提示用户并给出扩容建议，而非强行部署。
+When resources are insufficient, prompt the user with scaling recommendations instead of forcing the deployment.
 
-### docker — Docker 环境
+### docker -- Docker Environment
 
-| 字段 | 说明 |
-|------|------|
-| installed | 是否已安装 |
-| version | Docker Engine 版本 |
-| compose_version | Docker Compose 版本 |
-| daemon_running | 守护进程是否运行中 |
+| Field | Description |
+|-------|-------------|
+| installed | Whether Docker is installed |
+| version | Docker Engine version |
+| compose_version | Docker Compose version |
+| daemon_running | Whether the daemon is running |
 
-**版本要求：** Docker Engine >= 20.10，Compose >= 2.0。版本过低时提示升级。
+**Version requirements:** Docker Engine >= 20.10, Compose >= 2.0. Prompt for an upgrade if the version is too old.
 
-### nginx — Nginx
+### nginx -- Nginx
 
-| 字段 | 说明 |
-|------|------|
-| installed | 是否已安装 |
-| version | Nginx 版本 |
+| Field | Description |
+|-------|-------------|
+| installed | Whether Nginx is installed |
+| version | Nginx version |
 
-Nginx 可用时优先复用，避免重复安装。用于反向代理和静态文件服务。
+When Nginx is available, prefer reusing it to avoid duplicate installations. It is used for reverse proxying and static file serving.
 
-### 运行时环境
+### Runtime Environments
 
-检测以下运行时是否安装及版本：`nodejs`、`python`、`php`、`go`、`java`。
+Detects whether the following runtimes are installed and their versions: `nodejs`, `python`, `php`, `go`, `java`.
 
-**常见框架版本要求速查：**
+**Common framework version requirements quick reference:**
 
-| 框架 | 运行时 | 最低版本 |
-|------|--------|----------|
+| Framework | Runtime | Minimum Version |
+|-----------|---------|-----------------|
 | Next.js / Nuxt | Node.js | 18.x |
 | Django / Flask | Python | 3.9 |
 | WordPress / Laravel | PHP | 8.1 |
 | Hugo | Go | 1.20 |
 | Spring Boot | Java | 17 |
 
-### ports_in_use — 已占用端口
+### ports_in_use -- Ports in Use
 
-列出当前被监听的端口。部署前必须检查目标端口（默认 80/443）是否冲突，冲突时需终止占用进程或更换端口。
+Lists the ports currently being listened on. Before deployment, you must check whether the target ports (default 80/443) conflict. If there is a conflict, the occupying process must be terminated or the port must be changed.
 
-### ssh — SSH 配置
+### ssh -- SSH Configuration
 
-| 字段 | 说明 |
-|------|------|
-| configured | 是否已配置 |
-| key_files | 可用密钥文件列表 |
+| Field | Description |
+|-------|-------------|
+| configured | Whether SSH is configured |
+| key_files | List of available key files |
 
-远程部署场景下使用。有密钥文件时可直接调用 `deploy-ssh.sh`。
+Used in remote deployment scenarios. When key files are available, `deploy-ssh.sh` can be called directly.
 
-### firewall — 防火墙状态
+### firewall -- Firewall Status
 
-| 字段 | 说明 |
-|------|------|
-| type | 防火墙类型（ufw / iptables / firewalld） |
-| status | 是否启用 |
-| open_ports | 已放行端口列表 |
+| Field | Description |
+|-------|-------------|
+| type | Firewall type (ufw / iptables / firewalld) |
+| status | Whether the firewall is enabled |
+| open_ports | List of allowed ports |
 
-Web 服务需要 80（HTTP）和 443（HTTPS）端口可达。防火墙启用但未放行时，应提示用户开放。
+Web services require ports 80 (HTTP) and 443 (HTTPS) to be reachable. If the firewall is enabled but these ports are not allowed, prompt the user to open them.
 
-### is_container — 是否运行在容器内
+### is_container -- Whether Running Inside a Container
 
-布尔值。容器内通常无法使用 `systemd`，影响服务管理方式的选择（用 `supervisord` 或直接前台运行替代）。
+Boolean value. Inside a container, `systemd` is typically unavailable, which affects the choice of service management method (use `supervisord` or run in the foreground instead).
 
-### current_user / has_sudo — 权限上下文
+### current_user / has_sudo -- Permission Context
 
-| 字段 | 说明 |
-|------|------|
-| current_user | 当前用户名 |
-| has_sudo | 是否有 sudo 权限 |
+| Field | Description |
+|-------|-------------|
+| current_user | Current username |
+| has_sudo | Whether the user has sudo privileges |
 
-无 sudo 权限时无法安装系统包或绑定 80/443 端口，应提前告知用户。
+Without sudo privileges, system packages cannot be installed and ports 80/443 cannot be bound. The user should be informed in advance.
 
 ---
 
-## 环境类型判断逻辑
+## Environment Type Classification Logic
 
-根据检测结果自动分类环境，决定部署策略：
+Based on detection results, the environment is automatically classified to determine the deployment strategy:
 
 ```
 if ssh.configured AND target_is_remote:
-    → Remote SSH（使用 deploy-ssh.sh 远程部署）
+    → Remote SSH (use deploy-ssh.sh for remote deployment)
 
 elif docker.installed AND docker.daemon_running:
-    → Docker-ready（优先使用 Docker / Compose 部署）
+    → Docker-ready (prefer Docker / Compose deployment)
 
 elif any([nginx, nodejs, python, php, go, java]) installed:
-    → Bare-metal with tools（已有工具，直接安装依赖并部署）
+    → Bare-metal with tools (tools already available, install dependencies and deploy directly)
 
 else:
-    → Fresh server（需完整安装，先装运行时再部署）
+    → Fresh server (full installation required, install runtime first then deploy)
 ```
 
-**优先级：** 远程 SSH > Docker > 已有工具 > 全新安装。
+**Priority:** Remote SSH > Docker > Existing Tools > Fresh Installation.
 
 ---
 
-## 常见问题
+## Common Issues
 
-### Docker 已安装但守护进程未运行
+### Docker installed but daemon not running
 
 ```bash
 sudo systemctl start docker
-sudo systemctl enable docker   # 开机自启
+sudo systemctl enable docker   # Start on boot
 ```
 
-### 权限不足（Permission denied）
+### Insufficient permissions (Permission denied)
 
 ```bash
-# 将用户加入 docker 组，免 sudo 使用 docker
+# Add user to the docker group to use docker without sudo
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### 端口被占用
+### Port already in use
 
 ```bash
-# 查看占用进程
+# Check which process is using the port
 sudo lsof -i :80
-# 终止进程或更换部署端口
+# Terminate the process or change the deployment port
 ```
 
-### 磁盘空间不足
+### Insufficient disk space
 
 ```bash
-docker system prune -a   # 清理无用镜像和容器
-sudo apt autoremove -y   # 清理系统包缓存
+docker system prune -a   # Clean up unused images and containers
+sudo apt autoremove -y   # Clean up system package cache
 ```
 
-### 内存不足
+### Insufficient memory
 
 ```bash
-# 创建 2GB swap 文件
+# Create a 2GB swap file
 sudo fallocate -l 2G /swapfile
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
-# 持久化：在 /etc/fstab 末尾追加
+# Persist: append to the end of /etc/fstab
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```

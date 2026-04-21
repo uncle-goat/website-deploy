@@ -1,18 +1,18 @@
-# 依赖安装指南
+# Dependency Installation Guide
 
-## 包管理器检测
+## Package Manager Detection
 
-根据系统发行版选择对应的包管理器：
+Choose the appropriate package manager based on your system distribution:
 
-| 发行版 | 包管理器 | 检测命令 |
-|--------|----------|----------|
+| Distribution | Package Manager | Detection Command |
+|-------------|-----------------|-------------------|
 | Ubuntu / Debian | apt | `cat /etc/os-release` |
 | CentOS / RHEL | yum / dnf | `cat /etc/os-release` |
 | Fedora | dnf | `cat /etc/os-release` |
 | Alpine | apk | `cat /etc/os-release` |
 
 ```bash
-# 自动检测包管理器
+# Auto-detect the package manager
 if command -v apt &>/dev/null; then PKG="apt"
 elif command -v dnf &>/dev/null; then PKG="dnf"
 elif command -v yum &>/dev/null; then PKG="yum"
@@ -22,15 +22,15 @@ else echo "Unsupported package manager"; exit 1; fi
 
 ---
 
-## Docker 安装
+## Docker Installation
 
-### 官方安装脚本（推荐）
+### Official Installation Script (Recommended)
 
 ```bash
 curl -fsSL https://get.docker.com | sh
 ```
 
-### 手动安装
+### Manual Installation
 
 ```bash
 # Ubuntu/Debian
@@ -42,22 +42,22 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-### 配置
+### Configuration
 
 ```bash
-# 将当前用户加入 docker 组（免 sudo）
+# Add the current user to the docker group (no sudo required)
 usermod -aG docker $USER
-# 重新登录后生效
+# Log out and back in for changes to take effect
 
-# 启动并设置开机自启
+# Start Docker and enable it on boot
 systemctl enable --now docker
 
-# 验证安装
+# Verify the installation
 docker --version
 docker compose version
 ```
 
-### 国内镜像加速
+### Mirror Acceleration (China)
 
 ```bash
 mkdir -p /etc/docker
@@ -74,7 +74,7 @@ systemctl daemon-reload && systemctl restart docker
 
 ---
 
-## Nginx 安装
+## Nginx Installation
 
 ```bash
 # Ubuntu/Debian
@@ -83,19 +83,19 @@ apt update && apt install -y nginx
 # CentOS/RHEL
 yum install -y epel-release && yum install -y nginx
 
-# 启动并设置开机自启
+# Start and enable on boot
 systemctl enable --now nginx
 
-# 验证
+# Verify
 nginx -v
 systemctl status nginx
 ```
 
 ---
 
-## Node.js 安装
+## Node.js Installation
 
-### 方式一：NodeSource（推荐，适合生产环境）
+### Method 1: NodeSource (Recommended, suitable for production environments)
 
 ```bash
 # Node.js 20.x LTS
@@ -107,7 +107,7 @@ curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
 yum install -y nodejs
 ```
 
-### 方式二：nvm（适合开发环境，支持多版本切换）
+### Method 2: nvm (Suitable for development environments, supports switching between versions)
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
@@ -117,7 +117,7 @@ nvm use 20
 nvm alias default 20
 ```
 
-### 验证
+### Verification
 
 ```bash
 node --version   # v20.x.x
@@ -126,9 +126,9 @@ npm --version    # 10.x.x
 
 ---
 
-## Python 安装
+## Python Installation
 
-### 系统包安装
+### System Package Installation
 
 ```bash
 # Ubuntu/Debian
@@ -138,7 +138,7 @@ apt update && apt install -y python3 python3-pip python3-venv
 yum install -y python3 python3-pip
 ```
 
-### pyenv（多版本管理）
+### pyenv (Multi-version Management)
 
 ```bash
 curl https://pyenv.run | bash
@@ -150,7 +150,7 @@ pyenv install 3.12
 pyenv global 3.12
 ```
 
-### 验证
+### Verification
 
 ```bash
 python3 --version
@@ -159,26 +159,26 @@ pip3 --version
 
 ---
 
-## PHP 安装
+## PHP Installation
 
 ```bash
-# Ubuntu - 通过 ondrej PPA 安装指定版本
+# Ubuntu - Install a specific version via the ondrej PPA
 apt install -y software-properties-common
 add-apt-repository ppa:ondrej/php
 apt update
 
-# 安装 PHP 8.2 及常用扩展
+# Install PHP 8.2 and commonly used extensions
 apt install -y php8.2-fpm php8.2-cli php8.2-mysql php8.2-pgsql \
     php8.2-gd php8.2-zip php8.2-curl php8.2-mbstring php8.2-xml
 
-# 验证
+# Verify
 php -v
 php-fpm8.2 -v
 ```
 
 ---
 
-## Certbot 安装
+## Certbot Installation
 
 ```bash
 # Ubuntu/Debian
@@ -188,27 +188,27 @@ apt update && apt install -y certbot python3-certbot-nginx
 yum install -y epel-release
 yum install -y certbot python3-certbot-nginx
 
-# 获取证书
+# Obtain a certificate
 certbot --nginx -d example.com -d www.example.com
 
-# 测试自动续期
+# Test automatic renewal
 certbot renew --dry-run
 ```
 
 ---
 
-## 防火墙配置
+## Firewall Configuration
 
-### ufw（Ubuntu）
+### ufw (Ubuntu)
 
 ```bash
 ufw allow OpenSSH
-ufw allow 'Nginx Full'    # 包含 80 和 443 端口
+ufw allow 'Nginx Full'    # Includes ports 80 and 443
 ufw enable
 ufw status
 ```
 
-### firewalld（CentOS/RHEL）
+### firewalld (CentOS/RHEL)
 
 ```bash
 firewall-cmd --permanent --add-service=http
@@ -220,13 +220,13 @@ firewall-cmd --list-all
 
 ---
 
-## 国内镜像源配置
+## Mirror Source Configuration (China)
 
 ### npm
 
 ```bash
 npm config set registry https://registry.npmmirror.com
-# 验证
+# Verify
 npm config get registry
 ```
 
@@ -234,20 +234,20 @@ npm config get registry
 
 ```bash
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-# 或编辑 ~/.pip/pip.conf
+# Or edit ~/.pip/pip.conf
 ```
 
 ### Docker
 
-见上方 Docker 安装章节的「国内镜像加速」部分。
+See the "Mirror Acceleration (China)" section in the Docker installation chapter above.
 
-### Composer（PHP）
+### Composer (PHP)
 
 ```bash
 composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
 ```
 
-### apt（Ubuntu）
+### apt (Ubuntu)
 
 ```bash
 sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
@@ -255,7 +255,7 @@ sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
 apt update
 ```
 
-### yum（CentOS）
+### yum (CentOS)
 
 ```bash
 sed -i 's|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-*.repo

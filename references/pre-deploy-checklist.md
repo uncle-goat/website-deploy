@@ -1,45 +1,45 @@
-# 部署前检查清单
+# Pre-Deploy Checklist
 
-## 环境检查
+## Environment Check
 
-- [ ] 操作系统版本兼容（Ubuntu 20.04+ / Debian 11+ / CentOS 8+）
-- [ ] 磁盘空间充足（Docker 部署: 10GB+，服务器部署: 5GB+，CMS 系统: 20GB+）
-- [ ] 内存充足（Docker 部署: 2GB+，服务器部署: 1GB+，CMS 系统: 2GB+）
-- [ ] 所需端口未被占用（80, 443, 3000, 3306, 5432, 6379, 8080 等）
-- [ ] 防火墙已开放必要端口（80, 443）
-- [ ] 当前用户有 sudo 权限（如需安装软件包）
+- [ ] OS version is compatible (Ubuntu 20.04+ / Debian 11+ / CentOS 8+)
+- [ ] Sufficient disk space (Docker deployment: 10GB+, server deployment: 5GB+, CMS system: 20GB+)
+- [ ] Sufficient memory (Docker deployment: 2GB+, server deployment: 1GB+, CMS system: 2GB+)
+- [ ] Required ports are not in use (80, 443, 3000, 3306, 5432, 6379, 8080, etc.)
+- [ ] Firewall has opened necessary ports (80, 443)
+- [ ] Current user has sudo privileges (if package installation is needed)
 
-## 项目检查
+## Project Check
 
-- [ ] 构建命令在本地执行成功（`npm run build` / `python setup.py` 等）
-- [ ] 所有环境变量已准备（`.env` 文件或 `.env.example` 模板）
-- [ ] 敏感信息未硬编码在代码中（API keys、passwords、tokens）
-- [ ] `.gitignore` 包含 `.env`、`node_modules`、`__pycache__`、`.venv` 等
-- [ ] 数据库迁移脚本已准备并测试
-- [ ] 依赖版本已锁定（`package-lock.json`、`pnpm-lock.yaml`、`requirements.txt`）
-- [ ] 代码中无调试代码（`console.log`、`debugger`、`print` 调试语句）
-- [ ] 生产环境配置与开发环境已分离
+- [ ] Build command succeeds locally (`npm run build` / `python setup.py`, etc.)
+- [ ] All environment variables are prepared (`.env` file or `.env.example` template)
+- [ ] No sensitive information is hardcoded in code (API keys, passwords, tokens)
+- [ ] `.gitignore` includes `.env`, `node_modules`, `__pycache__`, `.venv`, etc.
+- [ ] Database migration scripts are prepared and tested
+- [ ] Dependency versions are locked (`package-lock.json`, `pnpm-lock.yaml`, `requirements.txt`)
+- [ ] No debug code in the codebase (`console.log`, `debugger`, `print` debug statements)
+- [ ] Production environment configuration is separated from development
 
-## 网络检查
+## Network Check
 
-- [ ] 域名 DNS 已解析到服务器 IP（如使用域名）
-- [ ] SSL 证书可获取（端口 80 可访问，DNS 已生效）
-- [ ] 服务器可通过 SSH 访问（远程部署时）
-- [ ] 服务器安全组/防火墙规则已配置
+- [ ] Domain DNS resolves to the server IP (if using a domain)
+- [ ] SSL certificate can be obtained (port 80 is accessible, DNS is in effect)
+- [ ] Server is accessible via SSH (for remote deployment)
+- [ ] Server security group/firewall rules are configured
 
-## Docker 特定检查
+## Docker-Specific Check
 
-- [ ] Docker Engine 20.10+ 已安装
-- [ ] Docker Compose 2.0+ 已安装
-- [ ] Docker daemon 正在运行（`systemctl status docker`）
-- [ ] `.dockerignore` 文件已创建（排除 `.git`、`node_modules`、`.env` 等）
-- [ ] Docker 镜像构建在本地测试通过
-- [ ] 容器间网络通信配置正确
+- [ ] Docker Engine 20.10+ is installed
+- [ ] Docker Compose 2.0+ is installed
+- [ ] Docker daemon is running (`systemctl status docker`)
+- [ ] `.dockerignore` file has been created (excluding `.git`, `node_modules`, `.env`, etc.)
+- [ ] Docker image build passes local testing
+- [ ] Inter-container network communication is configured correctly
 
-## 服务器特定检查
+## Server-Specific Check
 
-- [ ] Nginx 已安装或可安装（`nginx -v`）
-- [ ] Node.js / Python / PHP 版本与项目要求匹配
-- [ ] systemd 可用（非容器环境）
-- [ ] 日志目录已创建且有写入权限
-- [ ] 应用运行用户已创建（非 root 用户运行应用）
+- [ ] Nginx is installed or can be installed (`nginx -v`)
+- [ ] Node.js / Python / PHP versions match project requirements
+- [ ] systemd is available (non-container environments)
+- [ ] Log directory has been created with write permissions
+- [ ] Application runtime user has been created (do not run the application as root)

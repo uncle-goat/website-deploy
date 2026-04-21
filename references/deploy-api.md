@@ -1,61 +1,61 @@
-# 后端 API 服务部署指南
+# Backend API Service Deployment Guide
 
-## Express.js 部署
+## Express.js Deployment
 
-### PM2 进程管理
+### PM2 Process Management
 
-PM2 是 Node.js 生产环境首选的进程管理工具，提供进程守护、自动重启、集群模式和日志管理。
+PM2 is the preferred process management tool for Node.js production environments, providing process daemonization, automatic restarts, cluster mode, and log management.
 
-**为什么选择 PM2：**
-- 进程守护：进程崩溃后自动重启
-- 集群模式：充分利用多核 CPU
-- 日志管理：统一管理应用日志
-- 负载监控：实时查看 CPU 和内存占用
+**Why choose PM2:**
+- Process daemonization: automatically restarts processes after a crash
+- Cluster mode: fully utilizes multi-core CPUs
+- Log management: centrally manages application logs
+- Load monitoring: real-time CPU and memory usage monitoring
 
-**安装：**
+**Installation:**
 ```bash
 npm install -g pm2
 ```
 
-**启动应用：**
+**Starting the application:**
 ```bash
-# 基本启动
+# Basic start
 pm2 start src/index.js --name api --env production
 
-# 集群模式（使用所有 CPU 核心）
+# Cluster mode (uses all CPU cores)
 pm2 start src/index.js -i max --name api
 
-# 指定实例数量
+# Specify the number of instances
 pm2 start src/index.js -i 4 --name api
 ```
 
-**常用命令：**
+**Common commands:**
 ```bash
-pm2 list          # 查看所有进程
-pm2 logs api      # 查看日志
-pm2 restart api   # 重启应用
-pm2 stop api      # 停止应用
-pm2 delete api    # 删除应用
-pm2 monit         # 实时监控面板
-pm2 info api      # 查看详细信息
+pm2 list          # View all processes
+pm2 logs api      # View logs
+pm2 restart api   # Restart the application
+pm2 stop api      # Stop the application
+pm2 delete api    # Remove the application
+pm2 monit         # Real-time monitoring dashboard
+pm2 info api      # View detailed information
 ```
 
-**开机自启：**
+**Startup on boot:**
 ```bash
-pm2 startup       # 生成启动脚本
-pm2 save          # 保存当前进程列表
+pm2 startup       # Generate the startup script
+pm2 save          # Save the current process list
 ```
 
-### systemd 部署（替代 PM2）
+### systemd Deployment (Alternative to PM2)
 
-如果不使用 PM2，可以直接用 systemd 管理服务。
+If you prefer not to use PM2, you can manage the service directly with systemd.
 
-**使用生成脚本：**
+**Using the generation script:**
 ```bash
 bash generate-systemd-service.sh --name my-api --user deploy --workdir /opt/app --command "/usr/bin/node /path/to/app/src/index.js"
 ```
 
-**手动创建服务文件：**
+**Manually creating the service file:**
 ```ini
 # /etc/systemd/system/my-api.service
 [Unit]
@@ -75,7 +75,7 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 ```
 
-**使用 PM2 Ecosystem 配置文件：**
+**Using the PM2 Ecosystem configuration file:**
 ```javascript
 // ecosystem.config.js
 module.exports = {
@@ -98,18 +98,18 @@ pm2 start ecosystem.config.js --env production
 
 ---
 
-## FastAPI 部署
+## FastAPI Deployment
 
 ### Gunicorn + Uvicorn Workers
 
-Uvicorn 是 ASGI 服务器，Gunicorn 负责管理多个 worker 进程，两者结合适合生产环境。
+Uvicorn is an ASGI server, and Gunicorn manages multiple worker processes. Together, they are well-suited for production environments.
 
-**为什么使用 Gunicorn + Uvicorn：**
-- Uvicorn：高性能 ASGI 服务器，支持异步
-- Gunicorn：成熟的进程管理器，支持平滑重启、优雅关闭
-- 多 worker 进程充分利用多核 CPU
+**Why use Gunicorn + Uvicorn:**
+- Uvicorn: high-performance ASGI server with async support
+- Gunicorn: mature process manager with support for graceful restarts and shutdowns
+- Multiple worker processes fully utilize multi-core CPUs
 
-**启动命令：**
+**Startup command:**
 ```bash
 gunicorn app.main:app \
   -w 4 \
@@ -120,12 +120,12 @@ gunicorn app.main:app \
   --log-level info
 ```
 
-**Worker 数量建议：**
-- 公式：(2 × CPU 核心数) + 1
-- 4 核服务器：9 个 worker
-- 2 核服务器：5 个 worker
+**Worker count recommendations:**
+- Formula: (2 x number of CPU cores) + 1
+- 4-core server: 9 workers
+- 2-core server: 5 workers
 
-**systemd 服务配置：**
+**systemd service configuration:**
 ```ini
 # /etc/systemd/system/fastapi.service
 [Unit]
@@ -147,9 +147,9 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-### Docker 部署
+### Docker Deployment
 
-**Dockerfile（使用 Dockerfile.python 模板）：**
+**Dockerfile (using the Dockerfile.python template):**
 ```dockerfile
 FROM python:3.11-slim
 
@@ -171,13 +171,13 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 ---
 
-## Django 部署
+## Django Deployment
 
 ### Gunicorn
 
-Django 使用 WSGI 协议，通过 Gunicorn 运行。
+Django uses the WSGI protocol and runs through Gunicorn.
 
-**启动命令：**
+**Startup command:**
 ```bash
 gunicorn myproject.wsgi:application \
   --bind 0.0.0.0:8000 \
@@ -187,23 +187,23 @@ gunicorn myproject.wsgi:application \
   --error-logfile -
 ```
 
-**部署前准备：**
+**Pre-deployment preparation:**
 ```bash
-# 收集静态文件
+# Collect static files
 python manage.py collectstatic --noinput
 
-# 执行数据库迁移
+# Run database migrations
 python manage.py migrate --noinput
 ```
 
-**Nginx 配置要点：**
-- 静态文件由 Nginx 直接提供（`STATIC_ROOT`）
-- 媒体文件由 Nginx 直接提供（`MEDIA_ROOT`）
-- 动态请求通过反向代理转发到 Gunicorn
+**Nginx configuration highlights:**
+- Static files are served directly by Nginx (`STATIC_ROOT`)
+- Media files are served directly by Nginx (`MEDIA_ROOT`)
+- Dynamic requests are forwarded to Gunicorn via reverse proxy
 
-### Docker 部署
+### Docker Deployment
 
-**入口脚本（entrypoint.sh）：**
+**Entrypoint script (entrypoint.sh):**
 ```bash
 #!/bin/bash
 set -e
@@ -220,7 +220,7 @@ exec gunicorn myproject.wsgi:application \
   --workers 3
 ```
 
-**Docker Compose 卷挂载：**
+**Docker Compose volume mounts:**
 ```yaml
 volumes:
   - static_data:/app/staticfiles
@@ -229,17 +229,17 @@ volumes:
 
 ---
 
-## API 健康检查端点
+## API Health Check Endpoint
 
-所有 API 服务都应实现健康检查端点，返回 200 OK。
+All API services should implement a health check endpoint that returns 200 OK.
 
-**检查内容：**
-- 数据库连接状态
-- 缓存连接状态（Redis 等）
-- 外部服务可用性（如需依赖）
-- 应用版本号
+**What to check:**
+- Database connection status
+- Cache connection status (Redis, etc.)
+- External service availability (if dependencies exist)
+- Application version number
 
-**响应示例：**
+**Response example:**
 ```json
 {
   "status": "healthy",
@@ -250,14 +250,14 @@ volumes:
 }
 ```
 
-**FastAPI 实现：**
+**FastAPI implementation:**
 ```python
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 ```
 
-**Express 实现：**
+**Express implementation:**
 ```javascript
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', version: '1.0.0' });
@@ -266,8 +266,8 @@ app.get('/health', (req, res) => {
 
 ---
 
-## API 文档
+## API Documentation
 
-- **FastAPI**：自动生成，访问 `/docs`（Swagger UI）和 `/redoc`（ReDoc）
-- **Express**：使用 `swagger-ui-express` 和 `swagger-jsdoc` 生成
-- **Django**：使用 `drf-spectacular` 或 `drf-yasg` 自动生成 OpenAPI 文档
+- **FastAPI**: Auto-generated; access `/docs` (Swagger UI) and `/redoc` (ReDoc)
+- **Express**: Use `swagger-ui-express` and `swagger-jsdoc` to generate documentation
+- **Django**: Use `drf-spectacular` or `drf-yasg` to auto-generate OpenAPI documentation

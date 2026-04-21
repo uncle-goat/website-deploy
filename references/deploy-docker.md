@@ -1,23 +1,23 @@
-# Docker 容器化部署指南
+# Docker Containerized Deployment Guide
 
-## 为什么选择 Docker
+## Why Choose Docker
 
-Docker 通过容器化技术解决了传统部署中的诸多痛点：
+Docker solves many pain points of traditional deployment through containerization technology:
 
-- **环境一致性**：开发、测试、生产环境完全一致，彻底消除"在我机器上能跑"的问题。镜像打包了应用及其全部依赖，任何地方运行结果相同。
-- **隔离性**：每个容器拥有独立的文件系统、网络栈和进程空间，应用之间互不干扰，可以安全地在同一台主机上运行不同版本的运行时。
-- **易于扩展**：结合 Docker Compose 或 Kubernetes，可以快速水平扩展服务实例，应对流量高峰。
-- **可复现构建**：Dockerfile 即构建文档，任何人在任何时间都能从同一份 Dockerfile 构建出完全相同的镜像。
-- **干净销毁**：`docker compose down` 一条命令即可移除所有容器和网络，不留残留，非常适合临时环境和 CI/CD 场景。
+- **Environment consistency:** Development, testing, and production environments are fully consistent, eliminating the "it works on my machine" problem. Images package the application and all its dependencies, so the result is identical no matter where they run.
+- **Isolation:** Each container has its own filesystem, network stack, and process space. Applications do not interfere with each other, and different runtime versions can safely run on the same host.
+- **Easy scaling:** Combined with Docker Compose or Kubernetes, service instances can be quickly scaled horizontally to handle traffic spikes.
+- **Reproducible builds:** The Dockerfile serves as build documentation. Anyone can build the exact same image from the same Dockerfile at any time.
+- **Clean teardown:** A single `docker compose down` command removes all containers and networks with no leftovers, which is ideal for temporary environments and CI/CD scenarios.
 
-## Dockerfile 最佳实践
+## Dockerfile Best Practices
 
-### 多阶段构建
+### Multi-Stage Builds
 
-多阶段构建的核心思想：最终镜像只包含运行时所需文件，将构建工具、源码等排除在外。一个典型的 Node.js 项目，未优化镜像可能 500MB+，多阶段构建后通常只有 50-100MB。
+The core idea of multi-stage builds: the final image contains only the files needed at runtime, excluding build tools, source code, etc. A typical unoptimized Node.js project image may be 500MB+, but after multi-stage builds it is usually only 50-100MB.
 
 ```dockerfile
-# 阶段一：构建
+# Stage 1: Build
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -25,12 +25,12 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# 阶段二：运行
+# Stage 2: Run
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# 仅复制生产依赖和构建产物
+# Copy only production dependencies and build artifacts
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
@@ -41,16 +41,16 @@ USER node
 CMD ["node", "dist/server.js"]
 ```
 
-Python 项目同理：
+The same principle applies to Python projects:
 
 ```dockerfile
-# 阶段一：构建
+# Stage 1: Build
 FROM python:3.12-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 阶段二：运行
+# Stage 2: Run
 FROM python:3.12-slim AS runner
 WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -60,30 +60,30 @@ EXPOSE 8000
 CMD ["gunicorn", "app:app", "-b", "0.0.0.0:8000"]
 ```
 
-### 非 root 用户
+### Non-root User
 
-默认情况下容器以 root 运行。如果容器被攻破，攻击者将获得宿主机 root 权限。创建专用用户是最基本的安全加固措施。
+By default, containers run as root. If a container is compromised, the attacker gains root privileges on the host. Creating a dedicated user is the most basic security hardening measure.
 
 ```dockerfile
-# 创建用户和组
+# Create user and group
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# 设置工作目录并移交所有权
+# Set working directory and transfer ownership
 WORKDIR /app
 COPY --chown=appuser:appgroup . .
 
-# 切换到非 root 用户
+# Switch to non-root user
 USER appuser
 
 EXPOSE 3000
 CMD ["node", "dist/server.js"]
 ```
 
-如果应用需要监听 80 端口，不要用 root 运行，而是将容器内端口映射到宿主机 80 端口：`docker run -p 80:3000 ...`。
+If the application needs to listen on port 80, do not run it as root. Instead, map the container port to the host's port 80: `docker run -p 80:3000 ...`.
 
 ### .dockerignore
 
-`.dockerignore` 防止不必要的文件进入构建上下文，加速构建并减小镜像体积：
+`.dockerignore` prevents unnecessary files from entering the build context, speeding up builds and reducing image size:
 
 ```
 node_modules
@@ -105,49 +105,49 @@ coverage
 .DS_Store
 ```
 
-对于多阶段构建，`dist` 等构建产物目录也应忽略，因为它们会在容器内重新生成。
+For multi-stage builds, build output directories such as `dist` should also be ignored since they will be regenerated inside the container.
 
 ### HEALTHCHECK
 
-健康检查让编排工具（Docker Compose、Kubernetes）和监控系统知道容器是否真正可用。没有健康检查，容器进程存在但应用无响应的情况无法被检测到。
+Health checks allow orchestration tools (Docker Compose, Kubernetes) and monitoring systems to know whether a container is truly available. Without health checks, situations where the container process exists but the application is unresponsive cannot be detected.
 
 ```dockerfile
-# Node.js 应用
+# Node.js application
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
-# Python 应用（需要安装 curl）
+# Python application (requires curl to be installed)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 ```
 
-参数说明：
-- `--interval`：检查间隔，默认 30s
-- `--timeout`：单次检查超时，默认 30s
-- `--start-period`：容器启动后的宽限期，期间失败不计入重试次数
-- `--retries`：连续失败几次后标记为 unhealthy
+Parameter descriptions:
+- `--interval`: Check interval, default 30s
+- `--timeout`: Timeout for a single check, default 30s
+- `--start-period`: Grace period after container startup; failures during this period do not count toward retries
+- `--retries`: Number of consecutive failures before marking as unhealthy
 
-### 层缓存优化
+### Layer Cache Optimization
 
-Docker 按层构建，某一层变化会导致其后所有层缓存失效。利用这一点，将变化频率低的层放前面：
+Docker builds in layers. A change in one layer invalidates the cache for all subsequent layers. Taking advantage of this, place layers that change less frequently first:
 
 ```dockerfile
-# 第一步：只复制依赖声明文件（变化频率低）
+# Step 1: Copy only dependency declaration files (low change frequency)
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# 第二步：复制源码（变化频率高）
+# Step 2: Copy source code (high change frequency)
 COPY . .
 
-# 第三步：构建
+# Step 3: Build
 RUN npm run build
 ```
 
-这样，修改源码时，依赖安装层的缓存仍然有效，大幅缩短构建时间。对于 Python 项目同理：先复制 `requirements.txt` 并 `pip install`，再复制源码。
+This way, when source code changes, the dependency installation layer cache remains valid, significantly reducing build time. The same principle applies to Python projects: copy `requirements.txt` and run `pip install` first, then copy the source code.
 
-## docker-compose.yml 编排
+## docker-compose.yml Orchestration
 
-### 基本结构
+### Basic Structure
 
 ```yaml
 services:
@@ -208,13 +208,13 @@ volumes:
   redis-data:
 ```
 
-关键要点：
-- `restart: unless-stopped`：容器异常退出时自动重启，手动停止后不会自动启动
-- `env_file: .env`：从文件加载环境变量，避免在 compose 文件中硬编码敏感信息
-- `depends_on` + `condition: service_healthy`：确保依赖服务健康后才启动当前服务
-- 每个服务都配置 `healthcheck`，形成完整的健康监控链
+Key points:
+- `restart: unless-stopped`: Automatically restarts the container on abnormal exit, but does not auto-start after a manual stop
+- `env_file: .env`: Loads environment variables from a file, avoiding hardcoding sensitive information in the compose file
+- `depends_on` + `condition: service_healthy`: Ensures dependent services are healthy before starting the current service
+- Each service has a `healthcheck` configured, forming a complete health monitoring chain
 
-### 数据库服务
+### Database Services
 
 **PostgreSQL**
 
@@ -280,27 +280,27 @@ redis:
     retries: 5
 ```
 
-### 网络和卷
+### Networks and Volumes
 
-**命名卷（Named Volumes）**：用于持久化数据，Docker 自动管理存储位置，适合数据库数据、用户上传文件等需要长期保留的数据。
+**Named Volumes:** Used for persistent data. Docker automatically manages the storage location. Suitable for database data, user uploads, and other data that needs long-term retention.
 
 ```yaml
 volumes:
-  db-data:        # 数据库数据
-  uploads:        # 用户上传文件
+  db-data:        # Database data
+  uploads:        # User uploaded files
 ```
 
-**绑定挂载（Bind Mounts）**：将宿主机目录直接映射到容器内，适合开发环境实时同步代码。
+**Bind Mounts:** Map a host directory directly into the container. Suitable for real-time code synchronization in development environments.
 
 ```yaml
 services:
   app:
     volumes:
-      - .:/app           # 开发时代码实时同步
-      - /app/node_modules  # 防止宿主机 node_modules 覆盖容器内的
+      - .:/app           # Real-time code sync during development
+      - /app/node_modules  # Prevent host node_modules from overwriting container's
 ```
 
-**桥接网络（Bridge Network）**：同一网络内的容器可以通过服务名互相访问。例如 app 服务可以通过 `db:5432` 连接数据库，无需知道容器 IP。
+**Bridge Network:** Containers within the same network can access each other by service name. For example, the app service can connect to the database via `db:5432` without knowing the container's IP.
 
 ```yaml
 networks:
@@ -308,97 +308,97 @@ networks:
     driver: bridge
 ```
 
-## 常用命令
+## Common Commands
 
 ```bash
-# 构建并后台启动所有服务
+# Build and start all services in the background
 docker compose up -d --build
 
-# 查看服务状态（含健康状态）
+# View service status (including health status)
 docker compose ps
 
-# 查看实时日志（可指定服务名）
+# View real-time logs (can specify a service name)
 docker compose logs -f
 docker compose logs -f app
 
-# 重启单个服务
+# Restart a single service
 docker compose restart app
 
-# 停止并移除所有容器和网络
+# Stop and remove all containers and networks
 docker compose down
 
-# 停止并移除容器、网络和卷（警告：会删除数据库数据）
+# Stop and remove containers, networks, and volumes (warning: deletes database data)
 docker compose down -v
 
-# 进入运行中的容器调试
+# Enter a running container for debugging
 docker compose exec app sh
 
-# 查看镜像大小
+# View image sizes
 docker images
 
-# 清理所有未使用的镜像、容器、网络
+# Clean up all unused images, containers, and networks
 docker system prune -a
 
-# 查看磁盘占用
+# View disk usage
 docker system df
 ```
 
-## 常见问题
+## Common Issues
 
-### 构建失败
+### Build Failure
 
-- **Dockerfile 语法错误**：逐行检查指令拼写和参数格式
-- **.dockerignore 遗漏**：确认 `package.json` 等必要文件未被忽略
-- **构建时网络问题**：安装依赖时无法访问外网，检查代理配置或使用镜像源
-- **基础镜像不存在**：确认镜像标签正确，尝试 `docker pull` 手动拉取
+- **Dockerfile syntax error:** Check instruction spelling and parameter format line by line
+- **Missing .dockerignore:** Ensure necessary files like `package.json` are not being ignored
+- **Network issues during build:** Unable to access the internet when installing dependencies; check proxy configuration or use a mirror source
+- **Base image does not exist:** Verify the image tag is correct; try `docker pull` to manually pull it
 
-### 容器启动后立即退出
+### Container Exits Immediately After Starting
 
 ```bash
-# 查看退出日志
+# View exit logs
 docker compose logs app
 
-# 常见原因：
-# 1. CMD/ENTRYPOINT 命令不存在或路径错误
-# 2. 环境变量缺失导致应用启动失败
-# 3. 端口被占用
-# 4. 配置文件路径不正确
+# Common causes:
+# 1. CMD/ENTRYPOINT command does not exist or has an incorrect path
+# 2. Missing environment variables causing application startup failure
+# 3. Port is already in use
+# 4. Configuration file path is incorrect
 ```
 
-### 端口冲突
+### Port Conflict
 
-宿主机端口已被占用时，修改映射的宿主机端口即可：
+When the host port is already in use, simply change the mapped host port:
 
 ```yaml
-# 将宿主机 3001 映射到容器 3000
+# Map host port 3001 to container port 3000
 ports:
   - "3001:3000"
 ```
 
-### 卷权限问题
+### Volume Permission Issues
 
-容器内的非 root 用户可能无法写入挂载的卷。解决方案：
+A non-root user inside the container may not be able to write to mounted volumes. Solutions:
 
 ```dockerfile
-# 方案一：在 Dockerfile 中创建与宿主机相同的用户 ID
+# Option 1: Create a user with the same UID as the host in the Dockerfile
 RUN adduser -u 1000 -S appuser
 
-# 方案二：在 entrypoint 脚本中动态修复权限
+# Option 2: Dynamically fix permissions in the entrypoint script
 RUN chown -R appuser:appgroup /app/data
 ```
 
-### 磁盘空间不足
+### Insufficient Disk Space
 
 ```bash
-# 查看磁盘占用分布
+# View disk usage distribution
 docker system df
 
-# 清理未使用的资源（镜像、容器、网络）
+# Clean up unused resources (images, containers, networks)
 docker system prune -a
 
-# 单独清理未使用的卷
+# Clean up unused volumes separately
 docker volume prune
 
-# 查看具体卷的大小
+# View specific volume sizes
 docker system df -v
 ```
