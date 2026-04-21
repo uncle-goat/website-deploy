@@ -1,0 +1,511 @@
+# =============================================================================
+# GitHub Actions Workflow: Auto-deploy to Server on Push
+# =============================================================================
+# Triggers on push to main branch.
+# Two jobs: build-test (CI) and deploy (CD).
+#
+# Required Repository Secrets:
+#   SERVER_HOST       - Target server hostname/IP
+#   SERVER_USER       - SSH username for the server
+#   SERVER_SSH_KEY    - Private SSH key for authentication
+#   DEPLOY_URL        - Health check URL (e.g., https://example.com/health)
+#   SERVER_SSH_PORT   - (optional) SSH port, defaults to 22
+#   SERVICE_NAME      - (optional) systemd service name, defaults to "app"
+#   REMOTE_APP_DIR    - (optional) Remote app directory, defaults to "/var/www/app"
+# =============================================================================
+
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # Never cancel a deployment in progress
+
+env:
+  NODE_VERSION: "20"
+  BUILD_DIR: "dist"
+
+jobs:
+  # ─── Job 1: Build & Test ───────────────────────────────────────────────────
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint --if-present
+        continue-on-error: true
+
+      - name: Run tests
+        run: npm test --if-present
+        env:
+          CI: true
+
+      - name: Build application
+        run: npm run build
+        env:
+          CI: true
+          NODE_ENV: production
+
+      - name: Prepare deployment artifact
+        run: |
+          # Create a clean artifact directory with only what's needed for deploy
+          mkdir -p deploy-artifact
+          
+          # Copy build output
+          if [ -d "$BUILD_DIR" ]; then
+            cp -r "$BUILD_DIR" deploy-artifact/
+          fi
+          
+          # Copy package files for production install on server
+          cp package.json package-lock.json deploy-artifact/ 2>/dev/null || true
+          
+          # Copy any migration files
+          if [ -d "prisma" ]; then
+            cp -r prisma deploy-artifact/
+          fi
+          if [ -d "migrations" ]; then
+            cp -r migrations deploy-artifact/
+          fi
+          if [ -d "alembic" ]; then
+            cp -r alembic deploy-artifact/
+            cp alembic.ini deploy-artifact/ 2>/dev/null || true
+          fi
+          
+          # Copy server config files
+          cp ecosystem.config.js deploy-artifact/ 2>/dev/null || true
+          cp pm2.config.js deploy-artifact/ 2>/dev/null || true
+          cp .sequelizerc deploy-artifact/ 2>/dev/null || true
+          cp knexfile.js deploy-artifact/ 2>/dev/null || true
+          cp knexfile.ts deploy-artifact/ 2>/dev/null || true
+          
+          # Copy Docker files if present
+          cp Dockerfile deploy-artifact/ 2>/dev/null || true
+          cp docker-compose.yml deploy-artifact/ 2>/dev/null || true
+          cp docker-compose.yaml deploy-artifact/ 2>/dev/null || true
+          cp compose.yml deploy-artifact/ 2>/dev/null || true
+          cp compose.yaml deploy-artifact/ 2>/dev/null || true
+          cp .dockerignore deploy-artifact/ 2>/dev/null || true
+          
+          # Copy nginx config if present
+          cp nginx.conf deploy-artifact/ 2>/dev/null || true
+          if [ -d "nginx" ]; then
+            cp -r nginx deploy-artifact/
+          fi
+          
+          # Copy requirements.txt for Python projects
+          cp requirements.txt deploy-artifact/ 2>/dev/null || true
+          cp Pipfile deploy-artifact/ 2>/dev/null || true
+          cp pyproject.toml deploy-artifact/ 2>/dev/null || true
+          
+          # Store git info for version tracking
+          echo "${{ github.sha }}" > deploy-artifact/.deploy-sha
+          echo "${{ github.run_number }}" > deploy-artifact/.deploy-run
+          
+          echo "Artifact contents:"
+          ls -la deploy-artifact/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-artifact
+          path: deploy-artifact/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ─── Job 2: Deploy ─────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.ref == 'refs/heads/main'
+
+    environment:
+      name: production
+      url: ${{ secrets.DEPLOY_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-artifact
+          path: deploy-artifact/
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          SSH_PORT="${{ secrets.SERVER_SSH_PORT || 22 }}"
+          
+          # Add server to known hosts to prevent TOFU warning
+          ssh-keyscan -p "$SSH_PORT" -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Set deployment variables
+        id: deploy-vars
+        run: |
+          echo "timestamp=$(date '+%Y%m%d_%H%M%S')" >> "$GITHUB_OUTPUT"
+          echo "remote_dir=${{ secrets.REMOTE_APP_DIR || '/var/www/app' }}" >> "$GITHUB_OUTPUT"
+          echo "service_name=${{ secrets.SERVICE_NAME || 'app' }}" >> "$GITHUB_OUTPUT"
+          echo "ssh_port=${{ secrets.SERVER_SSH_PORT || 22 }}" >> "$GITHUB_OUTPUT"
+          echo "deploy_sha=$(cat deploy-artifact/.deploy-sha 2>/dev/null || echo 'unknown')" >> "$GITHUB_OUTPUT"
+
+      - name: Backup current version on server
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Backup"
+          REMOTE_DIR="${{ steps.deploy-vars.outputs.remote_dir }}"
+          TIMESTAMP="${{ steps.deploy-vars.outputs.timestamp }}"
+          BACKUP_BASE="/var/www/backups"
+          
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<REMOTE_SCRIPT
+            set -euo pipefail
+            
+            # Create backup directory
+            sudo mkdir -p "$BACKUP_BASE"
+            
+            # Create timestamped backup
+            BACKUP_PATH="$BACKUP_BASE/app_backup_\${TIMESTAMP}.tar.gz"
+            echo "Creating backup: \$BACKUP_PATH"
+            
+            if [ -d "$REMOTE_DIR" ]; then
+              sudo tar -czf "\$BACKUP_PATH" \
+                -C "$(dirname $REMOTE_DIR)" \
+                --exclude='node_modules' \
+                --exclude='.git' \
+                --exclude='venv' \
+                --exclude='.venv' \
+                --exclude='__pycache__' \
+                --exclude='.next' \
+                --exclude='*.pyc' \
+                "$(basename $REMOTE_DIR)" 2>/dev/null || true
+              
+              echo "Backup created: \$(sudo ls -lh \$BACKUP_PATH | awk '{print \$5}')"
+              
+              # Keep only last 5 backups
+              cd "$BACKUP_BASE"
+              BACKUP_COUNT=\$(ls -1 app_backup_*.tar.gz 2>/dev/null | wc -l)
+              if [ "\$BACKUP_COUNT" -gt 5 ]; then
+                echo "Removing old backups (keeping last 5)..."
+                ls -1t app_backup_*.tar.gz | tail -n +6 | xargs sudo rm -f
+                echo "Old backups removed"
+              fi
+            else
+              echo "No existing deployment found, skipping backup"
+            fi
+          REMOTE_SCRIPT
+          echo "::endgroup::"
+
+      - name: Sync files to server
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Sync files"
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=no" \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='venv' \
+            --exclude='.venv' \
+            deploy-artifact/ \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ steps.deploy-vars.outputs.remote_dir }}/"
+          echo "::endgroup::"
+
+      - name: Install dependencies on server
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Install dependencies"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<REMOTE_SCRIPT
+            set -euo pipefail
+            
+            cd "${{ steps.deploy-vars.outputs.remote_dir }}"
+            
+            # Node.js dependencies
+            if [ -f package.json ] && [ -f package-lock.json ]; then
+              echo "Installing Node.js dependencies..."
+              npm ci --omit=dev 2>&1 || npm install --production 2>&1
+              echo "Node.js dependencies installed"
+            fi
+            
+            # Python dependencies
+            if [ -f requirements.txt ]; then
+              echo "Installing Python dependencies..."
+              if [ -d venv ]; then
+                venv/bin/pip install -r requirements.txt --quiet 2>&1
+              elif [ -d .venv ]; then
+                .venv/bin/pip install -r requirements.txt --quiet 2>&1
+              else
+                pip install -r requirements.txt --quiet 2>&1
+              fi
+              echo "Python dependencies installed"
+            fi
+          REMOTE_SCRIPT
+          echo "::endgroup::"
+
+      - name: Run database migrations
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Migrations"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<REMOTE_SCRIPT
+            set -euo pipefail
+            
+            cd "${{ steps.deploy-vars.outputs.remote_dir }}"
+            
+            MIGRATION_RUN=false
+            
+            # Prisma
+            if [ -f prisma/schema.prisma ]; then
+              echo "Running Prisma migrations..."
+              npx prisma migrate deploy 2>&1
+              MIGRATION_RUN=true
+            fi
+            
+            # Django
+            if [ -f manage.py ]; then
+              echo "Running Django migrations..."
+              PYTHON="python3"
+              [ -d venv ] && PYTHON="venv/bin/python"
+              [ -d .venv ] && PYTHON=".venv/bin/python"
+              \$PYTHON manage.py migrate --noinput 2>&1
+              MIGRATION_RUN=true
+            fi
+            
+            # Sequelize
+            if [ -f .sequelizerc ]; then
+              echo "Running Sequelize migrations..."
+              npx sequelize db:migrate 2>&1
+              MIGRATION_RUN=true
+            fi
+            
+            # Alembic
+            if [ -f alembic.ini ]; then
+              echo "Running Alembic migrations..."
+              PYTHON="python3"
+              [ -d venv ] && PYTHON="venv/bin/python"
+              [ -d .venv ] && PYTHON=".venv/bin/python"
+              \$PYTHON -m alembic upgrade head 2>&1
+              MIGRATION_RUN=true
+            fi
+            
+            # Knex
+            if [ -f knexfile.js ] || [ -f knexfile.ts ]; then
+              echo "Running Knex migrations..."
+              npx knex migrate:latest 2>&1
+              MIGRATION_RUN=true
+            fi
+            
+            if [ "\$MIGRATION_RUN" = false ]; then
+              echo "No recognized migration tool found, skipping"
+            fi
+          REMOTE_SCRIPT
+          echo "::endgroup::"
+
+      - name: Restart service
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Restart service"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<REMOTE_SCRIPT
+            set -euo pipefail
+            
+            cd "${{ steps.deploy-vars.outputs.remote_dir }}"
+            SERVICE="${{ steps.deploy-vars.outputs.service_name }}"
+            
+            # Try systemd first
+            if sudo systemctl is-enabled "\$SERVICE" 2>/dev/null; then
+              echo "Restarting systemd service: \$SERVICE"
+              sudo systemctl restart "\$SERVICE"
+              echo "Service restarted"
+            # Then try PM2
+            elif command -v pm2 &>/dev/null && [ -f ecosystem.config.js ]; then
+              echo "Restarting PM2 app..."
+              pm2 restart ecosystem.config.js 2>&1 || pm2 restart all 2>&1
+              echo "PM2 app restarted"
+            # Then try Docker Compose
+            elif [ -f docker-compose.yml ] || [ -f compose.yml ]; then
+              COMPOSE_FILE="docker-compose.yml"
+              [ -f compose.yml ] && COMPOSE_FILE="compose.yml"
+              echo "Restarting Docker Compose..."
+              sudo docker compose -f "\$COMPOSE_FILE" up -d --build 2>&1
+              echo "Docker Compose restarted"
+            else
+              echo "WARNING: No recognized service manager found"
+              echo "Attempting systemctl restart as fallback..."
+              sudo systemctl restart "\$SERVICE" 2>/dev/null || true
+            fi
+          REMOTE_SCRIPT
+          echo "::endgroup::"
+
+      - name: Wait for service to be ready
+        run: sleep 10
+
+      - name: Health check
+        id: health-check
+        run: |
+          echo "::group::Health check"
+          DEPLOY_URL="${{ secrets.DEPLOY_URL }}"
+          MAX_ATTEMPTS=15
+          ATTEMPT=0
+          INTERVAL=4
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$DEPLOY_URL" 2>/dev/null || echo "000")
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: HTTP $HTTP_CODE"
+            
+            if echo "$HTTP_CODE" | grep -qE '^2'; then
+              echo "Service is healthy!"
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+              echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            
+            sleep $INTERVAL
+          done
+          
+          echo "Service failed health check"
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          exit 1
+          echo "::endgroup::"
+
+      - name: Rollback on failure
+        if: failure() && steps.health-check.outputs.healthy == 'false'
+        env:
+          SSH_PORT: ${{ steps.deploy-vars.outputs.ssh_port }}
+        run: |
+          echo "::group::Rollback"
+          echo "Health check failed, initiating rollback..."
+          
+          REMOTE_DIR="${{ steps.deploy-vars.outputs.remote_dir }}"
+          BACKUP_BASE="/var/www/backups"
+          SERVICE="${{ steps.deploy-vars.outputs.service_name }}"
+          
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<REMOTE_SCRIPT
+            set -euo pipefail
+            
+            echo "Finding most recent backup..."
+            LATEST_BACKUP=\$(ls -1t "$BACKUP_BASE"/app_backup_*.tar.gz 2>/dev/null | head -1)
+            
+            if [ -z "\$LATEST_BACKUP" ]; then
+              echo "ERROR: No backup found for rollback!"
+              exit 1
+            fi
+            
+            echo "Restoring from: \$LATEST_BACKUP"
+            
+            # Restore files from backup
+            sudo tar -xzf "\$LATEST_BACKUP" -C "$(dirname $REMOTE_DIR)" 2>/dev/null
+            
+            # Reinstall dependencies
+            cd "$REMOTE_DIR"
+            if [ -f package.json ] && [ -f package-lock.json ]; then
+              npm ci --omit=dev 2>/dev/null || npm install --production 2>/dev/null || true
+            fi
+            if [ -f requirements.txt ]; then
+              if [ -d venv ]; then
+                venv/bin/pip install -r requirements.txt --quiet 2>/dev/null || true
+              elif [ -d .venv ]; then
+                .venv/bin/pip install -r requirements.txt --quiet 2>/dev/null || true
+              else
+                pip install -r requirements.txt --quiet 2>/dev/null || true
+              fi
+            fi
+            
+            # Restart service
+            if sudo systemctl is-enabled "\$SERVICE" 2>/dev/null; then
+              sudo systemctl restart "\$SERVICE"
+            elif command -v pm2 &>/dev/null && [ -f ecosystem.config.js ]; then
+              pm2 restart ecosystem.config.js 2>/dev/null || pm2 restart all 2>/dev/null || true
+            elif [ -f docker-compose.yml ] || [ -f compose.yml ]; then
+              COMPOSE_FILE="docker-compose.yml"
+              [ -f compose.yml ] && COMPOSE_FILE="compose.yml"
+              sudo docker compose -f "\$COMPOSE_FILE" up -d 2>/dev/null || true
+            fi
+            
+            echo "Rollback completed"
+          REMOTE_SCRIPT
+          echo "::endgroup::"
+
+      - name: Verify rollback
+        if: failure() && steps.health-check.outputs.healthy == 'false'
+        run: |
+          echo "Waiting for rollback to take effect..."
+          sleep 10
+          
+          DEPLOY_URL="${{ secrets.DEPLOY_URL }}"
+          HTTP_CODE=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$DEPLOY_URL" 2>/dev/null || echo "000")
+          
+          if echo "$HTTP_CODE" | grep -qE '^2'; then
+            echo "Rollback successful! Service is healthy (HTTP $HTTP_CODE)"
+          else
+            echo "Rollback verification failed! Service returned HTTP $HTTP_CODE"
+            echo "Manual intervention required!"
+            exit 1
+          fi
+
+      - name: Deployment notification - Success
+        if: success()
+        run: |
+          echo "## Deployment Successful :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Deployed by** | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Server** | \`${{ secrets.SERVER_HOST }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Health** | HTTP ${{ steps.health-check.outputs.http_code }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Time** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deployment notification - Failure
+        if: failure()
+        run: |
+          echo "## Deployment Failed :x:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Deployed by** | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Server** | \`${{ secrets.SERVER_HOST }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Time** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> Rollback was attempted. Check server logs for details." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

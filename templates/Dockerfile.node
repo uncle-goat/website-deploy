@@ -1,0 +1,80 @@
+# =============================================================================
+# Node.js Multi-Stage Dockerfile
+# =============================================================================
+# 用途：构建并运行 Node.js 应用（支持 npm / pnpm / yarn）
+# 使用方式：根据项目实际情况替换 {{VARIABLE}} 占位符
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 阶段 1：构建阶段（builder）
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS builder
+
+# 设置工作目录
+WORKDIR /app
+
+# 先复制依赖描述文件，利用 Docker 层缓存加速构建
+# 仅当 package.json / package-lock.json / pnpm-lock.yaml / yarn.lock 变化时才重新安装依赖
+COPY package*.json ./
+# 如果使用 pnpm，还需复制 pnpm-lock.yaml
+# COPY pnpm-lock.yaml ./
+# 如果使用 yarn，还需复制 yarn.lock
+# COPY yarn.lock ./
+
+# 根据包管理器安装依赖（取消对应行的注释）
+# --- npm ---
+RUN npm ci
+# --- pnpm ---
+# RUN corepack enable pnpm && pnpm install --frozen-lockfile
+# --- yarn ---
+# RUN corepack enable yarn && yarn install --frozen-lockfile
+
+# 复制项目源代码
+COPY . .
+
+# 执行构建命令，生成产物（例如：npm run build、next build 等）
+RUN {{BUILD_COMMAND}}
+
+# ---------------------------------------------------------------------------
+# 阶段 2：运行阶段（runner）
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS runner
+
+# 安装 dumb-init 作为 PID 1 进程管理器，正确处理信号转发和僵尸进程回收
+RUN apk add --no-cache dumb-init curl
+
+# 创建非 root 用户运行应用，提升安全性
+# nodejs 用户在 node:20-alpine 镜像中已预创建，uid/gid 为 1001
+RUN addgroup -S nodejs -g 1001 && \
+    adduser -S nodejs -u 1001 -G nodejs
+
+# 设置工作目录
+WORKDIR /app
+
+# 从构建阶段复制产物
+# 根据项目类型调整路径：
+#   - Next.js:    /app/.next
+#   - 通用 Node:  /app/dist 或 /app/build
+COPY --from=builder --chown=nodejs:nodejs /app/{{OUTPUT_DIR}} ./{{OUTPUT_DIR}}
+# 如果运行时需要 package.json（如读取版本号），也一并复制
+COPY --from=builder --chown=nodejs:nodejs /app/package.json ./
+
+# 如果使用 pnpm / yarn 且运行时需要 node_modules，取消以下注释
+# COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+
+# 切换到非 root 用户
+USER nodejs
+
+# 声明服务监听端口
+EXPOSE {{PORT}}
+
+# 健康检查：每 30 秒通过 curl 探测 /health 端点
+# 超时 5 秒，连续 3 次失败标记为 unhealthy
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:{{PORT}}/health || exit 1
+
+# 使用 dumb-init 作为入口点，确保优雅关闭
+ENTRYPOINT ["dumb-init", "--"]
+
+# 启动命令（例如：node dist/server.js、npm start、next start 等）
+CMD {{START_COMMAND}}

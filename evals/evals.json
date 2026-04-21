@@ -1,0 +1,95 @@
+{
+  "skill_name": "website-deploy",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我有一个Next.js 14项目，目录下有 package.json、next.config.js、prisma/schema.prisma。服务器是Ubuntu 22.04，已安装Docker。帮我用Docker部署这个项目，需要包含PostgreSQL数据库。",
+      "expected_output": "AI应该：1) 运行环境检测脚本 2) 识别项目类型为Next.js全栈应用 3) 推荐Docker部署方案 4) 生成多阶段Dockerfile（非root用户、健康检查） 5) 生成包含app+postgres的docker-compose.yml 6) 执行构建和启动 7) 运行健康检查验证",
+      "files": [],
+      "expectations": [
+        "The assistant runs the environment detection script before proceeding",
+        "The assistant identifies the project as Next.js fullstack with PostgreSQL",
+        "The generated Dockerfile uses multi-stage build with a non-root user",
+        "The docker-compose.yml includes both the app service and PostgreSQL service",
+        "The assistant runs health-check after deployment and reports the result"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我把这个Express.js API部署到服务器上。项目目录有 package.json、src/index.js（监听3000端口），使用MongoDB。服务器是全新的Ubuntu 22.04，什么都没装。域名是 api.example.com，需要配置SSL。",
+      "expected_output": "AI应该：1) 检测环境发现缺少依赖 2) 安装Node.js、Nginx、certbot 3) 配置PM2或systemd守护进程 4) 配置Nginx反向代理 5) 使用certbot获取SSL证书 6) 验证部署成功",
+      "files": [],
+      "expectations": [
+        "The assistant detects that Node.js and Nginx are not installed and installs them",
+        "The assistant sets up a process manager (PM2 or systemd) for the Express app",
+        "The assistant configures Nginx as a reverse proxy on port 80/443",
+        "The assistant obtains an SSL certificate using certbot for api.example.com",
+        "The assistant runs post-deployment health check and reports the HTTPS URL"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "我有一个用Vite构建的纯静态网站（React SPA），想部署到Cloudflare Pages。项目目录有 package.json、vite.config.ts、src/ 目录。",
+      "expected_output": "AI应该：1) 识别为静态站点 2) 推荐Cloudflare Pages部署方案 3) 指导安装wrangler CLI 4) 配置构建命令和输出目录 5) 执行部署 6) 报告访问URL",
+      "files": [],
+      "expectations": [
+        "The assistant identifies the project as a static site (Vite + React)",
+        "The assistant recommends Cloudflare Pages or GitHub Pages as deployment method",
+        "The assistant provides the correct build command (npm run build) and output directory (dist/)",
+        "The assistant guides through the deployment process step by step"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我用Docker Compose部署一个WordPress博客，域名是 blog.example.com，需要配置SSL证书。",
+      "expected_output": "AI应该：1) 使用CMS部署参考文档 2) 生成WordPress + MySQL的docker-compose.yml 3) 配置Nginx反向代理 4) 获取SSL证书 5) 验证WordPress管理后台可访问",
+      "files": [],
+      "expectations": [
+        "The assistant uses the CMS deployment reference (deploy-cms.md)",
+        "The docker-compose.yml includes WordPress and MySQL services with persistent volumes",
+        "The assistant configures Nginx reverse proxy for blog.example.com",
+        "The assistant sets up SSL certificate using certbot",
+        "The assistant verifies WordPress admin panel is accessible"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "我有一个Django REST API项目，requirements.txt里有django和djangorestframework和psycopg2。服务器已有Docker。帮我部署，数据库用PostgreSQL。",
+      "expected_output": "AI应该：1) 识别为Python Django项目 2) 生成Python Dockerfile（多阶段、非root用户） 3) 生成docker-compose.yml（app + postgres） 4) 处理数据库迁移 5) 配置Gunicorn 6) 验证API端点",
+      "files": [],
+      "expectations": [
+        "The assistant identifies the project as Python Django with PostgreSQL",
+        "The Dockerfile uses multi-stage build with python:slim base image",
+        "The docker-compose.yml includes both Django app and PostgreSQL services",
+        "The assistant handles database migrations (python manage.py migrate)",
+        "The assistant configures Gunicorn as the production WSGI server"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "我的Next.js项目代码更新了，新加了一个API接口和数据库字段。之前是用Docker Compose部署在服务器上的，帮我更新部署。",
+      "expected_output": "AI应该走更新部署流程：1) 检测到已有Docker部署 2) 备份当前镜像和数据库 3) 检查变更内容（发现新的migration文件） 4) git pull拉取代码 5) docker compose build重建镜像 6) 执行数据库迁移 7) docker compose up -d滚动更新 8) 健康检查验证 9) 清理旧镜像",
+      "files": [],
+      "expectations": [
+        "The assistant detects this is an update deployment (not first deploy) and skips to Step 7",
+        "The assistant creates a backup of the current Docker image and database BEFORE making any changes",
+        "The assistant checks git diff to detect new migration files",
+        "The assistant runs database migration after updating the app container",
+        "The assistant runs cleanup (docker image prune) after successful update"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "刚才帮我部署的Express API更新后启动失败了，服务一直报502错误，帮我回滚到之前的版本。",
+      "expected_output": "AI应该：1) 确认当前服务状态异常 2) 恢复代码备份（tar解压） 3) 重新安装依赖和构建 4) 重启服务 5) 运行健康检查确认回滚成功 6) 报告回滚结果",
+      "files": [],
+      "expectations": [
+        "The assistant identifies this as a rollback scenario",
+        "The assistant restores from the most recent backup",
+        "The assistant reinstalls dependencies and rebuilds after restoring code",
+        "The assistant runs health check after rollback to confirm the service is healthy",
+        "The assistant reports the rollback result including the version that was restored"
+      ]
+    }
+  ]
+}

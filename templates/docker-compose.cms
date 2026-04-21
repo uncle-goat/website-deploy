@@ -1,0 +1,94 @@
+# =============================================================================
+# CMS Docker Compose 模板
+# =============================================================================
+# 用途：编排 CMS 系统（WordPress / Ghost）+ Nginx + 数据库 + 可选 Redis
+# 使用方式：根据项目实际情况替换 {{VARIABLE}} 占位符
+# 启动命令：docker compose up -d
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Nginx 反向代理 / Web 服务器
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: {{PROJECT_NAME}}-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Nginx 配置文件（需提前准备好）
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # Nginx 主配置
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL 证书（如有）
+      # - ./nginx/ssl:/etc/nginx/ssl:ro
+      # 站点数据（WordPress / Ghost 的静态资源等）
+      - {{CMS_DATA_PATH}}:/var/www/html:ro
+      # Nginx 日志
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      {{CMS_SERVICE}}:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - cms-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # CMS 服务（WordPress 或 Ghost，二选一）
+  # ===========================================================================
+  {{CMS_SERVICE_BLOCK}}
+
+  # ===========================================================================
+  # 数据库服务
+  # ===========================================================================
+  db:
+    image: mysql:8.0
+    container_name: {{PROJECT_NAME}}-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - cms-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # Redis 缓存（可选，用于对象缓存加速）
+  # ===========================================================================
+  {{REDIS_SERVICE_BLOCK}}
+
+# =============================================================================
+# 网络配置
+# =============================================================================
+networks:
+  cms-network:
+    driver: bridge
+
+# =============================================================================
+# 数据卷配置
+# =============================================================================
+volumes:
+  db-data:
+    driver: local
+  {{CMS_VOLUME_BLOCK}}
+  {{REDIS_VOLUME_BLOCK}}

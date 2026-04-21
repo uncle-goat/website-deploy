@@ -1,0 +1,17 @@
+[Unit]
+Description={{SERVICE_DESCRIPTION}}
+After=network.target
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+WorkingDirectory={{WORK_DIR}}
+ExecStart={{EXEC_COMMAND}}
+Restart=always
+RestartSec=5
+EnvironmentFile={{ENV_FILE}}
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

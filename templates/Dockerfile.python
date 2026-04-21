@@ -1,0 +1,89 @@
+# =============================================================================
+# Python Multi-Stage Dockerfile
+# =============================================================================
+# 用途：构建并运行 Python Web 应用（支持 gunicorn / uvicorn 等 ASGI/WSGI 服务器）
+# 使用方式：根据项目实际情况替换 {{VARIABLE}} 占位符
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 阶段 1：构建阶段（builder）
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+# 设置环境变量，防止 Python 生成 .pyc 文件并确保输出不被缓冲
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装构建依赖（编译 C 扩展时可能需要，如 psycopg2、numpy 等）
+# 根据项目需求调整，不需要时可删除此行
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 先复制依赖描述文件，利用 Docker 层缓存加速构建
+COPY requirements.txt ./
+
+# 创建虚拟环境并安装 Python 依赖
+# --no-cache-dir 不保留下载缓存，减小镜像体积
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 复制项目源代码
+COPY . .
+
+# 如果项目需要收集静态文件（如 Django），取消以下注释
+# RUN python manage.py collectstatic --noinput
+
+# ---------------------------------------------------------------------------
+# 阶段 2：运行阶段（runner）
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS runner
+
+# 设置环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# 安装运行时依赖（如 libpq 用于 PostgreSQL 连接）和健康检查工具
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libpq5 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建非 root 用户运行应用，提升安全性
+RUN groupadd --gid 1001 appuser && \
+    useradd --uid 1001 --gid appuser --shell /bin/sh --create-home appuser
+
+# 设置工作目录
+WORKDIR /app
+
+# 从构建阶段复制虚拟环境（包含所有已安装的 Python 依赖）
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+
+# 从构建阶段复制应用源代码
+COPY --from=builder --chown=appuser:appuser /app .
+
+# 切换到非 root 用户
+USER appuser
+
+# 声明服务监听端口
+EXPOSE {{PORT}}
+
+# 健康检查：每 30 秒通过 curl 探测 /health 端点
+# 超时 5 秒，连续 3 次失败标记为 unhealthy
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:{{PORT}}/health || exit 1
+
+# 启动命令示例：
+#   gunicorn:   gunicorn --bind 0.0.0.0:{{PORT}} app:app
+#   uvicorn:    uvicorn app.main:app --host 0.0.0.0 --port {{PORT}}
+#   hypercorn:  hypercorn app.main:app --bind 0.0.0.0:{{PORT}}
+CMD {{START_COMMAND}}
